@@ -9,7 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "container.h"
+#include "isolate.h"
 
 void
 setup_network(void)

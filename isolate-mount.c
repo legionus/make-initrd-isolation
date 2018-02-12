@@ -14,7 +14,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 
-#include "container.h"
+#include "isolate.h"
 
 #define MNTBUFSIZ 1024
 
@@ -292,13 +292,13 @@ do_mount(const char *newroot, struct mntent **mounts)
 
 		if (access(mpoint, F_OK) < 0) {
 			if (verbose)
-				dprintf(STDERR_FILENO, "WARNING: mountpoint not found in the container: %s\n", mounts[i]->mnt_dir);
+				dprintf(STDERR_FILENO, "WARNING: mountpoint not found in the isolation: %s\n", mounts[i]->mnt_dir);
 			goto next;
 		}
 
 		if (!strncasecmp("_bindents", mounts[i]->mnt_type, 9)) {
 			if (verbose)
-				dprintf(STDERR_FILENO, "mount(bind) content into the container: %s\n", mpoint);
+				dprintf(STDERR_FILENO, "mount(bind) content into the isolation: %s\n", mpoint);
 
 			if (mount("tmpfs", mpoint, "tmpfs", mflags.vfs_opts, mflags.data) < 0)
 				error(EXIT_FAILURE, errno, "mount(_bindents): %s", mpoint);
@@ -311,7 +311,7 @@ do_mount(const char *newroot, struct mntent **mounts)
 
 		if (!strncasecmp("_umount", mounts[i]->mnt_type, 7)) {
 			if (verbose)
-				dprintf(STDERR_FILENO, "umount from the container: %s\n", mpoint);
+				dprintf(STDERR_FILENO, "umount from the isolation: %s\n", mpoint);
 
 			if (umount2(mpoint, MNT_DETACH) < 0)
 				error(EXIT_FAILURE, errno, "umount2: %s", mpoint);
@@ -321,11 +321,11 @@ do_mount(const char *newroot, struct mntent **mounts)
 
 		if (verbose) {
 			if (mflags.vfs_opts & MS_BIND)
-				dprintf(STDERR_FILENO, "mount(bind) into the container: %s\n", mpoint);
+				dprintf(STDERR_FILENO, "mount(bind) into the isolation: %s\n", mpoint);
 			else if (mflags.vfs_opts & MS_MOVE)
-				dprintf(STDERR_FILENO, "mount(move) into the container: %s\n", mpoint);
+				dprintf(STDERR_FILENO, "mount(move) into the isolation: %s\n", mpoint);
 			else
-				dprintf(STDERR_FILENO, "mount into the container: %s\n", mpoint);
+				dprintf(STDERR_FILENO, "mount into the isolation: %s\n", mpoint);
 		}
 
 		if (mount(mounts[i]->mnt_fsname, mpoint, mounts[i]->mnt_type, mflags.vfs_opts, mflags.data) < 0)

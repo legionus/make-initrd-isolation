@@ -1,2 +1,2 @@
-spec: .gear/make-initrd-container.spec
+spec: .gear/isolate.spec
 tar: .

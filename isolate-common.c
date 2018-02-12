@@ -6,7 +6,7 @@
 #include <error.h>
 #include <limits.h>
 
-#include "container.h"
+#include "isolate.h"
 
 void *
 xmalloc(size_t size)

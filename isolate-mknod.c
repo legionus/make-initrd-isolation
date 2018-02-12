@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <error.h>
 
-#include "container.h"
+#include "isolate.h"
 
 #define LINESIZ 256
 

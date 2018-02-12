@@ -1,5 +1,5 @@
 PROJECT = make-initrd
-VERSION = $(shell sed '/^Version: */!d;s///;q' $(CURDIR)/.gear/make-initrd-container.spec)
+VERSION = $(shell sed '/^Version: */!d;s///;q' $(CURDIR)/.gear/isolate.spec)
 
 warning_CFLAGS = \
 	-Wall -Wextra -W -Wshadow -Wcast-align \
@@ -59,24 +59,24 @@ CFLAGS += -I.
 CFLAGS += -Os
 
 bin_PROGS =
-sbin_PROGS = container containerctl
+sbin_PROGS = isolate isolatectl
 config_ini = config.ini
 
-container_SRCS = \
-	container.c \
-	container-caps.c \
-	container-common.c \
-	container-env.c \
-	container-epoll.c \
-	container-fds.c \
-	container-hooks.c \
-	container-mknod.c \
-	container-mount.c \
-	container-netns.c \
-	container-ns.c \
-	container-userns.c
+isolate_SRCS = \
+	isolate.c \
+	isolate-caps.c \
+	isolate-common.c \
+	isolate-env.c \
+	isolate-epoll.c \
+	isolate-fds.c \
+	isolate-hooks.c \
+	isolate-mknod.c \
+	isolate-mount.c \
+	isolate-netns.c \
+	isolate-ns.c \
+	isolate-userns.c
 
-container_LIBS = $(shell pkg-config --libs libcap)
+isolate_LIBS = $(shell pkg-config --libs libcap)
 
 DEPS = $(call get_depends,$(bin_PROGS) $(sbin_PROGS),)
 OBJS = $(call get_objects,$(bin_PROGS) $(sbin_PROGS),)
@@ -102,26 +102,28 @@ all: $(config_ini) $(bin_PROGS) $(sbin_PROGS)
 %.o: %.c
 	$(COMPILE) $(OUTPUT_OPTION) $<
 
-container: $(call get_objects,container)
-	$(LINK) $(realpath $^) -o $@ $(container_LIBS)
+isolate: $(call get_objects,isolate)
+	$(LINK) $(realpath $^) -o $@ $(isolate_LIBS)
 
 format:
-	clang-format -style=file -i container*.c container*.h
+	clang-format -style=file -i isolate*.c isolate*.h
 
 install: $(config_ini) $(sbin_PROGS)
 	$(MKDIR_P) -- $(DESTDIR)$(bindir) $(DESTDIR)$(sbindir)
 	$(INSTALL) -p -m755 $(sbin_PROGS) $(DESTDIR)$(sbindir)/
-	$(MKDIR_P) -m700 -- $(DESTDIR)$(sysconfdir)/container
-	$(INSTALL) -p -m644 $(config_ini) $(DESTDIR)$(sysconfdir)/container/
-	$(CP) -r example/system $(DESTDIR)$(sysconfdir)/container/
-	$(MKDIR_P) -- $(DESTDIR)$(statedir)/container
-	$(TAR) -xf example/system.rootfs.tar.zst -C $(DESTDIR)$(statedir)/container
+	$(MKDIR_P) -m700 -- $(DESTDIR)$(sysconfdir)/isolate
+	$(INSTALL) -p -m644 $(config_ini) $(DESTDIR)$(sysconfdir)/isolate/
+	$(CP) -r example/system $(DESTDIR)$(sysconfdir)/isolate/
+	$(MKDIR_P) -- $(DESTDIR)$(statedir)/isolate
+	$(TAR) -xf example/system.rootfs.tar.zst -C $(DESTDIR)$(statedir)/isolate
+	$(MKDIR_P) -- $(DESTDIR)$(datadir)/make-initrd
+	$(CP) -r features $(DESTDIR)$(datadir)/make-initrd/
 
 clean:
 	$(RM) -rf -- $(config_ini) $(bin_PROGS) $(sbin_PROGS) $(DEPS) $(OBJS)
 
-# We need dependencies only if goal isn't "indent" or "clean".
-ifneq ($(MAKECMDGOALS),indent)
+# We need dependencies only if goal isn't "format" or "clean".
+ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),clean)
 
 %.d: %.c Makefile
@@ -132,4 +134,4 @@ ifneq ($(DEPS),)
 endif
 
 endif # clean
-endif # indent
+endif # format

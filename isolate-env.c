@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <error.h>
 
-#include "container.h"
+#include "isolate.h"
 
 void
 load_environ(struct mapfile *envs)

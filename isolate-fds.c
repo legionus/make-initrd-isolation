@@ -11,7 +11,7 @@
 #include <errno.h>
 #include <error.h>
 
-#include "container.h"
+#include "isolate.h"
 
 static int
 get_open_max(void)

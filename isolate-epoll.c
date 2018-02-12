@@ -5,7 +5,7 @@
 #include <error.h>
 #include <errno.h>
 
-#include "container.h"
+#include "isolate.h"
 
 int
 epollin_init(void)

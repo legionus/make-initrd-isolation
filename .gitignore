@@ -1,5 +1,5 @@
-container
-containerctl
+isolate
+isolatectl
 config.ini
 *.[do]
 *.1

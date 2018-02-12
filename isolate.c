@@ -15,7 +15,7 @@
 #include <signal.h>
 #include <grp.h> // setgroups
 
-#include "container.h"
+#include "isolate.h"
 
 int verbose = 0;
 const char *program_subname;

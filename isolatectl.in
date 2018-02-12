@@ -5,8 +5,8 @@
 . shell-quote
 . shell-git-config
 
-container="@SBINDIR@/container"
-configdir="@CONFIG@/container"
+isolate="@SBINDIR@/isolate"
+configdir="@CONFIG@/isolate"
 
 cfg="$configdir/config.ini"
 
@@ -79,30 +79,30 @@ parse_config()
 {
 
 	cfg_verbose=
-	! get_bool 'global.verbose' "container.$1.verbose" ||
+	! get_bool 'global.verbose' "isolate.$1.verbose" ||
 		cfg_verbose=1
 
-	git_config_get cfg_rootdir "$cfg" "container.$1.rootdir"
-	git_config_get cfg_uid     "$cfg" "container.$1.uid"
-	git_config_get cfg_gid     "$cfg" "container.$1.gid"
-	git_config_get cfg_init    "$cfg" "container.$1.init"
-	git_config_get cfg_stdout  "$cfg" "container.$1.stdout"
-	git_config_get cfg_stdin   "$cfg" "container.$1.stdin"
-	git_config_get cfg_restart "$cfg" "container.$1.restart"
+	git_config_get cfg_rootdir "$cfg" "isolate.$1.rootdir"
+	git_config_get cfg_uid     "$cfg" "isolate.$1.uid"
+	git_config_get cfg_gid     "$cfg" "isolate.$1.gid"
+	git_config_get cfg_init    "$cfg" "isolate.$1.init"
+	git_config_get cfg_stdout  "$cfg" "isolate.$1.stdout"
+	git_config_get cfg_stdin   "$cfg" "isolate.$1.stdin"
+	git_config_get cfg_restart "$cfg" "isolate.$1.restart"
 
-	cfg_cap_add="$(git_config_list "$cfg" "container.$1.cap-add" |split_comma)"
-	cfg_cap_drop="$(git_config_list "$cfg" "container.$1.cap-drop" |split_comma)"
-	cfg_unshare="$(git_config_list "$cfg" "container.$1.unshare" |split_comma)"
+	cfg_cap_add="$(git_config_list "$cfg" "isolate.$1.cap-add" |split_comma)"
+	cfg_cap_drop="$(git_config_list "$cfg" "isolate.$1.cap-drop" |split_comma)"
+	cfg_unshare="$(git_config_list "$cfg" "isolate.$1.unshare" |split_comma)"
 }
 
-conntainer_exec()
+isolation_exec()
 {
 	[ -z "$cfg_stdin" ] && [ -z "$cfg_stdout" ] ||
 		eval exec ${cfg_stdin:+<"$cfg_stdin"} ${cfg_stdout:+>"$cfg_stdout" 2>&1}
 
 	while :; do
 		rc=0
-		"$container" "$@" -- "$cfg_rootdir" ${cfg_init:-/bin/sh} || rc=$?
+		"$isolate" "$@" -- "$cfg_rootdir" ${cfg_init:-/bin/sh} || rc=$?
 
 		[ -n "$cfg_restart" ] ||
 			break
@@ -118,12 +118,12 @@ start()
 	parse_config "$name"
 
 	if [ ! -d "$cfg_rootdir" ]; then
-		printf "Container %s do not have root directory.\n" "$name"
+		printf "Isolation %s do not have root directory.\n" "$name"
 		return 1
 	fi
 
 	if ! mkdir -m700 "$cfg_lockdir/$name" >/dev/null 2>&1; then
-		printf "Container %s is already running.\n" "$name"
+		printf "Isolation %s is already running.\n" "$name"
 		return 0
 	fi
 
@@ -151,16 +151,16 @@ start()
 	[ -d "$cg_freezer/$name" ] || mkdir -- "$cg_freezer/$name" ||
 		return
 
-	local  CONTAINER_HOOK_PRERUN="$cfg_lockdir/$name/hook.pre"
-	export CONTAINER_HOOK_PRERUN
+	local  ISOLATION_HOOK_PRERUN="$cfg_lockdir/$name/hook.pre"
+	export ISOLATION_HOOK_PRERUN
 
-	printf '#!/bin/sh -efu\necho $CONTAINER_PID > %s\n' "$cg_tasks" > "$CONTAINER_HOOK_PRERUN"
-	chmod +x -- "$CONTAINER_HOOK_PRERUN"
+	printf '#!/bin/sh -efu\necho $ISOLATION_PID > %s\n' "$cg_tasks" > "$ISOLATION_HOOK_PRERUN"
+	chmod +x -- "$ISOLATION_HOOK_PRERUN"
 
 	if [ -n "$cfg_stdin" ]; then
-		(conntainer_exec "$@") &
+		(isolation_exec "$@") &
 	else
-		(conntainer_exec "$@")
+		(isolation_exec "$@")
 		stop
 	fi
 }
@@ -168,7 +168,7 @@ start()
 stop()
 {
 	if [ ! -d "$cg_freezer/$name" ]; then
-		printf "Container %s is not running.\n" "$name"
+		printf "Isolation %s is not running.\n" "$name"
 		return 1
 	fi
 
@@ -280,7 +280,7 @@ for name; do
 					s=dead
 				}
 			fi
-			printf "Container %s is %s.\n" "$name" "$s"
+			printf "Isolation %s is %s.\n" "$name" "$s"
 			;;
 		*)
 			show_usage "Error: unknown action: $action"

@@ -3,8 +3,8 @@
 	lockdir = /var/tmp
 	cgroupsdir = /sys/fs/cgroup
 
-[container "system"]
-	rootdir = @STATEDIR@/container/system
+[isolate "system"]
+	rootdir = @STATEDIR@/isolate/system
 	init = /bin/bash
 	#uid = 99
 	#gid = 99

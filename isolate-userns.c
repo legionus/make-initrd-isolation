@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <error.h>
 
-#include "container.h"
+#include "isolate.h"
 
 #define PROC_ROOT "/proc"
 
