@@ -1,0 +1,12 @@
+[global]
+	verbose = no
+	lockdir = /var/tmp
+	cgroupsdir = /sys/fs/cgroup
+
+[container "system"]
+	rootdir = @STATEDIR@/container/system
+	init = /bin/bash
+	#uid = 99
+	#gid = 99
+	unshare = uts,ipc,sysvsem,pid,mounts
+	cap-drop = cap_sys_module,cap_sys_boot

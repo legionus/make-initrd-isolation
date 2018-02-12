@@ -1,0 +1,2 @@
+spec: .gear/make-initrd-container.spec
+tar: .
