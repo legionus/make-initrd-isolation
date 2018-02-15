@@ -1,0 +1,5 @@
+/run      /run           _bindents   rw,relatime,size=5120k,nr_inodes=493518               0 0
+none      /run/udev      _umount     none                                                  0 0
+proc      /proc          proc        rw,nosuid,noexec,relatime,gid=19                      0 0
+udevfs    /dev           devtmpfs    rw,relatime,size=5120k,nr_inodes=493518,mode=755      0 0
+sysfs     /sys           sysfs       rw,nosuid,nodev,noexec,relatime                       0 0
