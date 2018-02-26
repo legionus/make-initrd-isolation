@@ -1,7 +1,7 @@
-PROJECT = make-initrd
 VERSION = $(shell sed '/^Version: */!d;s///;q' $(CURDIR)/.gear/isolate.spec)
 
 warning_CFLAGS = \
+	-Os -D_FORTIFY_SOURCE=2 -fstack-protector \
 	-Wall -Wextra -W -Wshadow -Wcast-align \
 	-Wwrite-strings -Wconversion -Waggregate-return -Wstrict-prototypes \
 	-Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn \
@@ -16,14 +16,12 @@ statedir   ?= /var/lib
 mandir     ?= $(datadir)/man
 man1dir    ?= $(mandir)/man1
 tmpdir     ?= /tmp
-prefix     ?= $(datadir)/$(PROJECT)
 DESTDIR    ?=
 
 ifdef MKLOCAL
-prefix        = $(TOPDIR)
-bindir        = $(TOPDIR)
-sbindir       = $(TOPDIR)
-statedir      = $(tmpdir)
+bindir   = $(TOPDIR)
+sbindir  = $(TOPDIR)
+statedir = $(tmpdir)
 endif
 
 quiet_cmd   = $(if $(VERBOSE),$(3),$(Q)printf "  %-07s%s\n" "$(1)" $(2); $(3))
@@ -50,13 +48,7 @@ COMPILE  = $(call quiet_cmd,CC,$<,$(COMPILE.c))
 LINK     = $(call quiet_cmd,CCLD,$@,$(LINK.o))
 DEP      = $(call quiet_cmd,DEP,$<,$(CC))
 
-CFLAGS = $(warning_CFLAGS) \
-	-DPACKAGE=\"$@\" -DVERSION=\"$(VERSION)\" \
-	-DPROGRAM_NAME=\"$(notdir $(PROG))\" \
-	-D_GNU_SOURCE=1
-
-CFLAGS += -I.
-CFLAGS += -Os
+CFLAGS = $(warning_CFLAGS) -I -Os -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
 
 bin_PROGS =
 sbin_PROGS = isolate isolatectl
@@ -86,15 +78,11 @@ all: $(config_ini) $(bin_PROGS) $(sbin_PROGS)
 %: %.in
 	$(SED) \
 		-e 's,@VERSION@,$(VERSION),g' \
-		-e 's,@PROJECT@,$(PROJECT),g' \
-		-e 's,@BOOTDIR@,$(bootdir),g' \
 		-e 's,@CONFIG@,$(sysconfdir),g' \
 		-e 's,@STATEDIR@,$(statedir),g' \
-		-e 's,@PREFIX@,$(prefix),g' \
 		-e 's,@BINDIR@,$(bindir),g' \
 		-e 's,@SBINDIR@,$(sbindir),g' \
 		-e 's,@TMPDIR@,$(tmpdir),g' \
-		-e 's,@LOCALBUILDDIR@,$(localbuilddir),g' \
 		<$< >$@
 	$(TOUCH_R) $< $@
 	$(CHMOD) --reference=$< $@
