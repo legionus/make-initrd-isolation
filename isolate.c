@@ -23,6 +23,7 @@ const char *program_subname;
 struct container {
 	char **argv;
 	char *root;
+	char *hostname;
 	cap_t caps;
 	int nice;
 	int no_new_privs;
@@ -51,6 +52,7 @@ const struct option long_opts[] = {
 	{ "nice", required_argument, NULL, 2 },
 	{ "devices", required_argument, NULL, 3 },
 	{ "environ", required_argument, NULL, 4 },
+	{ "hostname", required_argument, NULL, 5 },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -69,6 +71,7 @@ usage(int code)
 	        " --nice=NUM            change process priority\n"
 	        " --environ=FILE        set environment variables listed in the FILE\n"
 	        " --devices=FILE        create devices listed in the FILE\n"
+	        " --hostname=STR        UTS name (hostname) of the container\n"
 	        " -U, --unshare=STR     unshare everything I know\n"
 	        " -P, --writepid=FILE   write pid to file\n"
 	        " -A, --cap-add=list    add Linux capabilities\n"
@@ -329,6 +332,9 @@ conatainer_child(struct container *data, int rpipe, int wpipe)
 	if (data->unshare_flags & CLONE_NEWNET)
 		setup_network();
 
+	if (data->hostname && sethostname(data->hostname, strlen(data->hostname)) < 0)
+		error(EXIT_FAILURE, errno, "sethostname");
+
 	// client notify parent that we are ready to run
 	write_pipe(wpipe);
 
@@ -413,6 +419,10 @@ main(int argc, char **argv)
 			case 4:
 				open_map(optarg, &envs);
 				data.envs = &envs;
+				break;
+			case 5:
+				data.unshare_flags |= CLONE_NEWUTS;
+				data.hostname = optarg;
 				break;
 			case 'A':
 				if (cap_parse_arg(&data.caps, optarg, CAP_SET) < 0)

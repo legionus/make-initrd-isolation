@@ -82,13 +82,14 @@ parse_config()
 	! get_bool 'global.verbose' "isolate.$1.verbose" ||
 		cfg_verbose=1
 
-	git_config_get cfg_rootdir "$cfg" "isolate.$1.rootdir"
-	git_config_get cfg_uid     "$cfg" "isolate.$1.uid"
-	git_config_get cfg_gid     "$cfg" "isolate.$1.gid"
-	git_config_get cfg_init    "$cfg" "isolate.$1.init"
-	git_config_get cfg_stdout  "$cfg" "isolate.$1.stdout"
-	git_config_get cfg_stdin   "$cfg" "isolate.$1.stdin"
-	git_config_get cfg_restart "$cfg" "isolate.$1.restart"
+	git_config_get cfg_rootdir  "$cfg" "isolate.$1.rootdir"
+	git_config_get cfg_uid      "$cfg" "isolate.$1.uid"
+	git_config_get cfg_gid      "$cfg" "isolate.$1.gid"
+	git_config_get cfg_init     "$cfg" "isolate.$1.init"
+	git_config_get cfg_hostname "$cfg" "isolate.$1.hostname"
+	git_config_get cfg_stdout   "$cfg" "isolate.$1.stdout"
+	git_config_get cfg_stdin    "$cfg" "isolate.$1.stdin"
+	git_config_get cfg_restart  "$cfg" "isolate.$1.restart"
 
 	cfg_cap_add="$(git_config_list "$cfg" "isolate.$1.cap-add" |split_comma)"
 	cfg_cap_drop="$(git_config_list "$cfg" "isolate.$1.cap-drop" |split_comma)"
@@ -137,6 +138,7 @@ start()
 	args="$args ${cfg_verbose:+-v}"
 	args="$args ${cfg_uid:+--uid=$cfg_uid}"
 	args="$args ${cfg_gid:+--gid=$cfg_gid}"
+	args="$args ${cfg_hostname:+--hostname=$cfg_hostname}"
 	args="$args $(join_arg --unshare  $cfg_unshare)"
 	args="$args $(join_arg --cap-drop $cfg_cap_drop)"
 	args="$args $(join_arg --cap-add  $cfg_cap_add)"
