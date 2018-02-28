@@ -55,18 +55,19 @@ xstrdup(const char *s)
 	return r;
 }
 
-char *__attribute__((__format__(__printf__, 2, 3)))
+int __attribute__((__format__(__printf__, 2, 3)))
 __attribute__((__nonnull__(2)))
 xasprintf(char **ptr, const char *fmt, ...)
 {
+	int ret;
 	va_list arg;
 
 	va_start(arg, fmt);
-	if (vasprintf(ptr, fmt, arg) < 0)
+	if ((ret = vasprintf(ptr, fmt, arg)) < 0)
 		error(EXIT_FAILURE, errno, "vasprintf");
 	va_end(arg);
 
-	return *ptr;
+	return ret;
 }
 
 void *

@@ -21,6 +21,7 @@ int verbose = 0;
 const char *program_subname;
 
 struct container {
+	char *name;
 	char **argv;
 	char *root;
 	char *hostname;
@@ -33,12 +34,15 @@ struct container {
 	struct mapfile *envs;
 	struct mapfile *devs;
 	struct mntent **mounts;
+	struct cgroups *cgroups;
 };
 
-const char short_opts[]         = "vVhU:u:g:c:m:e:P:";
+const char short_opts[]         = "vVhA:D:n:U:u:g:c:m:e:P:";
 const struct option long_opts[] = {
+	{ "name", required_argument, NULL, 'n' },
 	{ "cap-add", required_argument, NULL, 'A' },
 	{ "cap-drop", required_argument, NULL, 'D' },
+	{ "cgroups", required_argument, NULL, 'c' },
 	{ "mount", required_argument, NULL, 'm' },
 	{ "setenv", required_argument, NULL, 'e' },
 	{ "uid", required_argument, NULL, 'u' },
@@ -53,6 +57,7 @@ const struct option long_opts[] = {
 	{ "devices", required_argument, NULL, 3 },
 	{ "environ", required_argument, NULL, 4 },
 	{ "hostname", required_argument, NULL, 5 },
+	{ "cgroup-dir", required_argument, NULL, 6 },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -72,10 +77,12 @@ usage(int code)
 	        " --environ=FILE        set environment variables listed in the FILE\n"
 	        " --devices=FILE        create devices listed in the FILE\n"
 	        " --hostname=STR        UTS name (hostname) of the container\n"
+	        " --cgroup-dir=DIR      location of cgroup FS\n"
 	        " -U, --unshare=STR     unshare everything I know\n"
 	        " -P, --writepid=FILE   write pid to file\n"
 	        " -A, --cap-add=list    add Linux capabilities\n"
 	        " -D, --cap-drop=list   drop Linux capabilities\n"
+	        " -c, --cgroups=list    add the container's process pid to the cgroups\n"
 	        " -u, --uid=UID         exposes the mapping of user IDs\n"
 	        " -g, --gid=GID         exposes the mapping of group IDs\n"
 	        " -e, --setenv=FILE     sets new environ from file\n"
@@ -174,15 +181,18 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 
 	prehook_pid = hook_pid = 0;
 
-	free_data(data);
-
+	init_pid = -1;
 	if (read(rpipe, &init_pid, sizeof(init_pid)) != sizeof(init_pid))
 		error(EXIT_FAILURE, errno, "read init pid");
 
+	setenvf("CONTAINER_NAME", "%s", data->name);
 	setenvf("CONTAINER_PID", "%d", init_pid);
 
 	// wait for client
 	read_pipe(rpipe);
+
+	cgroup_create(data->cgroups);
+	cgroup_add(data->cgroups, init_pid);
 
 	if (data->remap_uid || data->remap_gid) {
 		uid_t real_euid = geteuid();
@@ -284,6 +294,7 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 						case SIGHUP:
 							break;
 
+						case SIGINT:
 						case SIGTERM:
 							goto done;
 					}
@@ -298,6 +309,20 @@ done:
 
 	close(rpipe);
 	close(wpipe);
+
+	size_t procs = cgroup_signal(data->cgroups, 0);
+	int signum   = SIGTERM;
+
+	do {
+		cgroup_freeze(data->cgroups);
+		procs = cgroup_signal(data->cgroups, signum);
+		cgroup_unfreeze(data->cgroups);
+		signum = SIGKILL;
+		usleep(500);
+	} while (procs > 0);
+
+	cgroup_destroy(data->cgroups);
+	free_data(data);
 
 	return rc;
 }
@@ -390,11 +415,16 @@ main(int argc, char **argv)
 	struct container data = {};
 	struct mapfile envs   = {};
 	struct mapfile devs   = {};
+	struct cgroups cg     = {};
 
 	int pipe_1[2]; // client reads from it, parent writes
 	int pipe_2[2]; // parent reads from it, client writes
 
+	data.cgroups       = &cg;
 	data.unshare_flags = CLONE_FS;
+
+	cg.group   = (char *) "isolate";
+	cg.rootdir = (char *) "/sys/fs/cgroup";
 
 	error_print_progname = my_error_print_progname;
 
@@ -413,16 +443,23 @@ main(int argc, char **argv)
 					error(EXIT_FAILURE, 0, "bad value: %s", optarg);
 				break;
 			case 3:
-				open_map(optarg, &devs);
+				open_map(optarg, &devs, 0);
 				data.devs = &devs;
 				break;
 			case 4:
-				open_map(optarg, &envs);
+				open_map(optarg, &envs, 0);
 				data.envs = &envs;
 				break;
 			case 5:
 				data.unshare_flags |= CLONE_NEWUTS;
 				data.hostname = optarg;
+				break;
+			case 6:
+				cg.rootdir = optarg;
+				break;
+			case 'n':
+				data.name = xfree(data.name);
+				data.name = xstrdup(optarg);
 				break;
 			case 'A':
 				if (cap_parse_arg(&data.caps, optarg, CAP_SET) < 0)
@@ -431,6 +468,10 @@ main(int argc, char **argv)
 			case 'D':
 				if (cap_parse_arg(&data.caps, optarg, CAP_CLEAR) < 0)
 					return EXIT_FAILURE;
+				break;
+			case 'c':
+				if (strlen(optarg) > 0)
+					cgroup_split_controllers(&cg, optarg);
 				break;
 			case 'P':
 				apid = optarg;
@@ -476,6 +517,8 @@ main(int argc, char **argv)
 
 	data.argv = &argv[optind];
 
+	cgroup_controller(&cg, "freezer");
+
 	if (setgroups((size_t) 0, NULL) == -1)
 		error(EXIT_FAILURE, errno, "setgroups");
 
@@ -496,6 +539,11 @@ main(int argc, char **argv)
 
 		if (apid)
 			append_pid(apid, pid);
+
+		if (!data.name)
+			xasprintf(&data.name, "container-%lu", pid);
+
+		cg.name = data.name;
 
 		return container_parent(pid, pipe_2[0], pipe_1[1], &data);
 	}

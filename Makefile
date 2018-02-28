@@ -1,7 +1,7 @@
 VERSION = $(shell sed '/^Version: */!d;s///;q' $(CURDIR)/.gear/isolate.spec)
 
 warning_CFLAGS = \
-	-Os -D_FORTIFY_SOURCE=2 -fstack-protector \
+	-g -Os -D_FORTIFY_SOURCE=2 -fstack-protector \
 	-Wall -Wextra -W -Wshadow -Wcast-align \
 	-Wwrite-strings -Wconversion -Waggregate-return -Wstrict-prototypes \
 	-Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn \
@@ -48,7 +48,7 @@ COMPILE  = $(call quiet_cmd,CC,$<,$(COMPILE.c))
 LINK     = $(call quiet_cmd,CCLD,$@,$(LINK.o))
 DEP      = $(call quiet_cmd,DEP,$<,$(CC))
 
-CFLAGS = $(warning_CFLAGS) -I -Os -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
+CFLAGS = $(warning_CFLAGS) -I. -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
 
 bin_PROGS =
 sbin_PROGS = isolate isolatectl
@@ -57,6 +57,7 @@ config_ini = config.ini
 isolate_SRCS = \
 	isolate.c \
 	isolate-caps.c \
+	isolate-cgroups.c \
 	isolate-common.c \
 	isolate-env.c \
 	isolate-epoll.c \

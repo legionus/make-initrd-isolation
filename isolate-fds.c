@@ -69,23 +69,25 @@ cloexec_fds(void)
 }
 
 void
-open_map(char *filename, struct mapfile *f)
+open_map(char *filename, struct mapfile *f, int quiet)
 {
 	struct stat sb;
 
-	if ((f->fd = open(filename, O_RDONLY, O_CLOEXEC)) < 0)
+	if ((f->fd = open(filename, O_RDONLY | O_CLOEXEC)) < 0)
 		error(EXIT_FAILURE, errno, "open: %s", filename);
 
 	if (fstat(f->fd, &sb) < 0)
 		error(EXIT_FAILURE, errno, "fstat: %s", filename);
 
+	f->size = (size_t) sb.st_size;
+
 	if (!sb.st_size) {
 		close(f->fd);
-		error(EXIT_SUCCESS, 0, "file %s is empty", filename);
+		f->fd = -1;
+		if (!quiet)
+			error(EXIT_SUCCESS, 0, "file %s is empty", filename);
 		return;
 	}
-
-	f->size = (size_t) sb.st_size;
 
 	if ((f->map = mmap(NULL, f->size, PROT_READ, MAP_PRIVATE, f->fd, 0)) == MAP_FAILED)
 		error(EXIT_FAILURE, errno, "mmap: %s", filename);

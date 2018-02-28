@@ -10,6 +10,13 @@ struct mapfile {
 	char *map;
 };
 
+struct cgroups {
+	char *rootdir;
+	char *group;
+	char *name;
+	char **controller;
+};
+
 // isolate-env.c
 int setenvf(const char *name, const char *fmt, ...);
 void load_environ(struct mapfile *envs);
@@ -18,7 +25,7 @@ void load_environ(struct mapfile *envs);
 void make_devices(struct mapfile *devs);
 
 // isolate-fds.c
-void open_map(char *filename, struct mapfile *file);
+void open_map(char *filename, struct mapfile *file, int quiet);
 void close_map(struct mapfile *file);
 void sanitize_fds(void);
 void cloexec_fds(void);
@@ -59,12 +66,22 @@ int cap_change_flag(cap_t caps, const char *capname, cap_flag_value_t value);
 int cap_parse_arg(cap_t *caps, char *arg, cap_flag_value_t value);
 void apply_caps(cap_t caps);
 
+// isolate-cgroups.c
+int cgroup_create(struct cgroups *cg);
+int cgroup_destroy(struct cgroups *cg);
+int cgroup_add(struct cgroups *cg, pid_t pid);
+void cgroup_controller(struct cgroups *cg, const char *controller);
+void cgroup_split_controllers(struct cgroups *cg, const char *opts);
+void cgroup_freeze(struct cgroups *cg);
+void cgroup_unfreeze(struct cgroups *cg);
+size_t cgroup_signal(struct cgroups *cg, int signum);
+
 // isolate-common.c
 void *xmalloc(size_t size);
 void *xcalloc(size_t nmemb, size_t size);
 void *xfree(void *ptr);
 void *xrealloc(void *ptr, size_t nmemb, size_t size);
 char *xstrdup(const char *s);
-char *xasprintf(char **ptr, const char *fmt, ...);
+int xasprintf(char **ptr, const char *fmt, ...);
 
 #endif /* _CONTAINER_H_ */
