@@ -2,6 +2,7 @@
 #include <sys/prctl.h>
 #include <sys/mount.h>
 #include <sys/signalfd.h>
+#include <sys/socket.h>
 
 #include <sched.h>
 #include <unistd.h>
@@ -25,19 +26,19 @@ struct container {
 	char **argv;
 	char *root;
 	char *hostname;
+	char *devfile;
+	char *envfile;
 	cap_t caps;
 	int nice;
 	int no_new_privs;
 	int unshare_flags;
 	uint64_t remap_uid;
 	uint64_t remap_gid;
-	struct mapfile *envs;
-	struct mapfile *devs;
 	struct mntent **mounts;
 	struct cgroups *cgroups;
 };
 
-const char short_opts[]         = "vVhA:D:n:U:u:g:c:m:e:P:";
+const char short_opts[]         = "vVhA:D:n:U:u:g:c:m:e:p:";
 const struct option long_opts[] = {
 	{ "name", required_argument, NULL, 'n' },
 	{ "cap-add", required_argument, NULL, 'A' },
@@ -47,7 +48,7 @@ const struct option long_opts[] = {
 	{ "setenv", required_argument, NULL, 'e' },
 	{ "uid", required_argument, NULL, 'u' },
 	{ "gid", required_argument, NULL, 'g' },
-	{ "writepid", required_argument, NULL, 'P' },
+	{ "pidfile", required_argument, NULL, 'p' },
 	{ "unshare", required_argument, NULL, 'U' },
 	{ "help", no_argument, NULL, 'h' },
 	{ "verbose", no_argument, NULL, 'v' },
@@ -79,7 +80,6 @@ usage(int code)
 	        " --hostname=STR        UTS name (hostname) of the container\n"
 	        " --cgroup-dir=DIR      location of cgroup FS\n"
 	        " -U, --unshare=STR     unshare everything I know\n"
-	        " -P, --writepid=FILE   write pid to file\n"
 	        " -A, --cap-add=list    add Linux capabilities\n"
 	        " -D, --cap-drop=list   drop Linux capabilities\n"
 	        " -c, --cgroups=list    add the container's process pid to the cgroups\n"
@@ -87,6 +87,7 @@ usage(int code)
 	        " -g, --gid=GID         exposes the mapping of group IDs\n"
 	        " -e, --setenv=FILE     sets new environ from file\n"
 	        " -m, --mount=FSTAB     mounts filesystems using FSTAB file\n"
+	        " -p, --pidfile=FILE    write pid to FILE\n"
 	        " -h, --help            display this help and exit\n"
 	        " -v, --verbose         print a message for each action\n"
 	        " -V, --version         output version information and exit\n"
@@ -137,19 +138,21 @@ append_pid(const char *filename, pid_t pid)
 }
 
 static void
-write_pipe(const int fd)
+write_pipe(const int fd, pid_t v, const char *stage)
 {
-	if (write(fd, "x", 1) < 0)
-		error(EXIT_FAILURE, errno, "write");
-	fsync(fd);
+	//error(EXIT_SUCCESS, 0, "stage: %s", stage);
+	if (write(fd, &v, sizeof(v)) < 0)
+		error(EXIT_FAILURE, errno, "write_pipe(%s)", stage);
 }
 
-static void
-read_pipe(const int fd)
+static pid_t
+read_pipe(const int fd, const char *stage)
 {
-	char c;
-	if (read(fd, &c, 1) < 0)
-		error(EXIT_FAILURE, errno, "read");
+	pid_t x = 0;
+	//error(EXIT_SUCCESS, 0, "stage: %s", stage);
+	if (read(fd, &x, sizeof(x)) < 0)
+		error(EXIT_FAILURE, errno, "read_pipe(%s)", stage);
+	return x;
 }
 
 static void
@@ -165,10 +168,12 @@ free_data(struct container *data)
 
 	if (data->caps)
 		cap_free(data->caps);
+
+	xfree(data->name);
 }
 
 static int
-container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
+container_parent(struct container *data, int child)
 {
 	int i, rc;
 	pid_t init_pid, prehook_pid, hook_pid;
@@ -181,16 +186,34 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 
 	prehook_pid = hook_pid = 0;
 
+	sigfillset(&mask);
+	sigprocmask(SIG_SETMASK, &mask, NULL);
+
+	sigdelset(&mask, SIGABRT);
+	sigdelset(&mask, SIGSEGV);
+
+	if ((fd_signal = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC)) < 0)
+		error(EXIT_FAILURE, errno, "signalfd");
+
+	fd_ep = epollin_init();
+	epollin_add(fd_ep, fd_signal);
+
+	write_pipe(child, 1, "ready for clients");
+
 	init_pid = -1;
-	if (read(rpipe, &init_pid, sizeof(init_pid)) != sizeof(init_pid))
+	if (read(child, &init_pid, sizeof(init_pid)) != sizeof(init_pid))
 		error(EXIT_FAILURE, errno, "read init pid");
 
-	setenvf("CONTAINER_NAME", "%s", data->name);
-	setenvf("CONTAINER_PID", "%d", init_pid);
+	if (!read_pipe(child, "waiting for client")) {
+		data->cgroups = NULL;
+		rc            = EXIT_FAILURE;
+		goto done;
+	}
 
-	// wait for client
-	read_pipe(rpipe);
+	// enforce freezer controller
+	cgroup_controller(data->cgroups, "freezer");
 
+	// prepare cgroups
 	cgroup_create(data->cgroups);
 	cgroup_add(data->cgroups, init_pid);
 
@@ -209,17 +232,8 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 		map_id("gid_map", init_pid, data->remap_gid, real_egid);
 	}
 
-	sigfillset(&mask);
-	sigprocmask(SIG_SETMASK, &mask, NULL);
-
-	sigdelset(&mask, SIGABRT);
-	sigdelset(&mask, SIGSEGV);
-
-	if ((fd_signal = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC)) < 0)
-		error(EXIT_FAILURE, errno, "signalfd");
-
-	fd_ep = epollin_init();
-	epollin_add(fd_ep, fd_signal);
+	setenvf("CONTAINER_NAME", "%s", data->name);
+	setenvf("CONTAINER_PID", "%d", init_pid);
 
 	rc = EXIT_SUCCESS;
 	while (1) {
@@ -242,14 +256,11 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 
 			} else if (prehook_pid == -2) {
 				prehook_pid = -3;
-
-				// allow client to start
-				write_pipe(wpipe);
-
+				write_pipe(child, 1, "allow client to start");
 				continue;
 			}
 
-			if (!child_pid && hook_pid <= 0)
+			if (!init_pid && hook_pid <= 0)
 				goto done;
 
 			ep_timeout = 1000;
@@ -276,10 +287,10 @@ container_parent(pid_t child_pid, int rpipe, int wpipe, struct container *data)
 							if ((pid = waitpid(-1, &status, 0)) < 0)
 								error(EXIT_FAILURE, errno, "waitpid");
 
-							if (pid == child_pid) {
-								child_pid = 0;
-								hook_pid  = run_hook("POSTRUN");
-								rc        = WEXITSTATUS(status);
+							if (pid == init_pid) {
+								init_pid = 0;
+								hook_pid = run_hook("POSTRUN");
+								rc       = WEXITSTATUS(status);
 							} else if (pid == prehook_pid) {
 								prehook_pid = -2;
 							} else if (pid == hook_pid) {
@@ -307,19 +318,18 @@ done:
 		close(fd_ep);
 	}
 
-	close(rpipe);
-	close(wpipe);
+	close(child);
 
 	size_t procs = cgroup_signal(data->cgroups, 0);
 	int signum   = SIGTERM;
 
-	do {
+	while (procs > 0) {
 		cgroup_freeze(data->cgroups);
 		procs = cgroup_signal(data->cgroups, signum);
 		cgroup_unfreeze(data->cgroups);
 		signum = SIGKILL;
 		usleep(500);
-	} while (procs > 0);
+	}
 
 	cgroup_destroy(data->cgroups);
 	free_data(data);
@@ -328,13 +338,13 @@ done:
 }
 
 static int
-conatainer_child(struct container *data, int rpipe, int wpipe)
+conatainer_child(struct container *data, int parent)
 {
+	struct mapfile envs = {};
+	struct mapfile devs = {};
+
 	program_subname      = "child";
 	error_print_progname = print_program_subname;
-
-	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
-		error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
 
 	if (data->unshare_flags & CLONE_NEWNS) {
 		if (mount("/", "/", "none", MS_PRIVATE | MS_REC, NULL) < 0 && errno != EINVAL)
@@ -360,11 +370,20 @@ conatainer_child(struct container *data, int rpipe, int wpipe)
 	if (data->hostname && sethostname(data->hostname, strlen(data->hostname)) < 0)
 		error(EXIT_FAILURE, errno, "sethostname");
 
-	// client notify parent that we are ready to run
-	write_pipe(wpipe);
+	if (data->devfile && open_map(data->devfile, &devs, 0) < 0) {
+		write_pipe(parent, 0, "NOT ready to run");
+		return EXIT_FAILURE;
+	}
 
-	// client waiting for permission to start
-	read_pipe(rpipe);
+	if (data->envfile && open_map(data->envfile, &envs, 0) < 0) {
+		write_pipe(parent, 0, "NOT ready to run");
+		return EXIT_FAILURE;
+	}
+
+	write_pipe(parent, 1, "ready to run");
+
+	if (!read_pipe(parent, "waiting for permission to start"))
+		return EXIT_FAILURE;
 
 	if (chroot(data->root) < 0)
 		error(EXIT_FAILURE, errno, "chroot");
@@ -378,8 +397,8 @@ conatainer_child(struct container *data, int rpipe, int wpipe)
 	if (nice(data->nice) < 0)
 		error(EXIT_FAILURE, errno, "nice: %d", data->nice);
 
-	if (data->devs)
-		make_devices(data->devs);
+	if (data->devfile)
+		make_devices(&devs);
 
 	if (data->caps)
 		apply_caps(data->caps);
@@ -395,8 +414,8 @@ conatainer_child(struct container *data, int rpipe, int wpipe)
 
 	clearenv();
 
-	if (data->envs)
-		load_environ(data->envs);
+	if (data->envfile)
+		load_environ(&envs);
 
 	cloexec_fds();
 
@@ -406,19 +425,54 @@ conatainer_child(struct container *data, int rpipe, int wpipe)
 	return EXIT_FAILURE;
 }
 
+static int
+fork_child(struct container *data, int parent)
+{
+	char c = 'x';
+	int pipe[2];
+	pid_t pid;
+
+	if (!read_pipe(parent, "waiting for permission to fork"))
+		return EXIT_FAILURE;
+
+	if (pipe2(pipe, O_DIRECT) < 0)
+		error(EXIT_FAILURE, errno, "pipe2");
+
+	if ((pid = fork()) < 0)
+		error(EXIT_FAILURE, errno, "fork");
+
+	if (pid > 0) {
+		if (write(parent, &pid, sizeof(pid)) != sizeof(pid))
+			error(EXIT_FAILURE, errno, "transfer pid");
+
+		if (write(pipe[1], &c, sizeof(c)) < 0)
+			error(EXIT_FAILURE, errno, "write");
+		close(pipe[0]);
+		close(pipe[1]);
+
+		free_data(data);
+
+		return EXIT_SUCCESS;
+	}
+
+	if (read(pipe[0], &c, sizeof(c)) < 0)
+		error(EXIT_FAILURE, errno, "read");
+	close(pipe[0]);
+	close(pipe[1]);
+
+	return conatainer_child(data, parent);
+}
+
 int
 main(int argc, char **argv)
 {
 	int c;
 	pid_t pid;
-	char *apid            = NULL;
+	char *pidfile         = NULL;
 	struct container data = {};
-	struct mapfile envs   = {};
-	struct mapfile devs   = {};
 	struct cgroups cg     = {};
 
-	int pipe_1[2]; // client reads from it, parent writes
-	int pipe_2[2]; // parent reads from it, client writes
+	int sv[2];
 
 	data.cgroups       = &cg;
 	data.unshare_flags = CLONE_FS;
@@ -443,12 +497,10 @@ main(int argc, char **argv)
 					error(EXIT_FAILURE, 0, "bad value: %s", optarg);
 				break;
 			case 3:
-				open_map(optarg, &devs, 0);
-				data.devs = &devs;
+				data.devfile = optarg;
 				break;
 			case 4:
-				open_map(optarg, &envs, 0);
-				data.envs = &envs;
+				data.envfile = optarg;
 				break;
 			case 5:
 				data.unshare_flags |= CLONE_NEWUTS;
@@ -473,8 +525,8 @@ main(int argc, char **argv)
 				if (strlen(optarg) > 0)
 					cgroup_split_controllers(&cg, optarg);
 				break;
-			case 'P':
-				apid = optarg;
+			case 'p':
+				pidfile = optarg;
 				break;
 			case 'u':
 				data.unshare_flags |= CLONE_NEWUSER;
@@ -508,44 +560,41 @@ main(int argc, char **argv)
 	}
 
 	data.root = argv[optind++];
-
-	if (access(data.root, R_OK | X_OK) < 0)
-		error(EXIT_FAILURE, errno, "access: %s", data.root);
+	data.argv = &argv[optind];
 
 	if (argc == optind)
 		error(EXIT_FAILURE, 0, "Command required");
 
-	data.argv = &argv[optind];
+	if (chdir("/") < 0)
+		error(EXIT_FAILURE, errno, "chdir(/)");
 
-	cgroup_controller(&cg, "freezer");
-
-	if (setgroups((size_t) 0, NULL) == -1)
-		error(EXIT_FAILURE, errno, "setgroups");
+	if (access(data.root, R_OK | X_OK) < 0)
+		error(EXIT_FAILURE, errno, "access: %s", data.root);
 
 	sanitize_fds();
 
-	if (pipe2(pipe_1, O_DIRECT | O_CLOEXEC) < 0)
-		error(EXIT_FAILURE, errno, "pipe2(1)");
+	if (setgroups((size_t) 0, NULL) < 0)
+		error(EXIT_FAILURE, errno, "setgroups");
 
-	if (pipe2(pipe_2, O_DIRECT | O_CLOEXEC) < 0)
-		error(EXIT_FAILURE, errno, "pipe2(2)");
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) < 0)
+		error(EXIT_FAILURE, errno, "socketpair");
+
+	if (prctl(PR_SET_CHILD_SUBREAPER, 1) < 0)
+		error(EXIT_FAILURE, errno, "prctl(PR_SET_CHILD_SUBREAPER)");
 
 	if ((pid = fork()) < 0)
 		error(EXIT_FAILURE, errno, "fork");
 
 	if (pid > 0) {
-		close(pipe_2[1]);
-		close(pipe_1[0]);
-
-		if (apid)
-			append_pid(apid, pid);
+		if (pidfile)
+			append_pid(pidfile, getpid());
 
 		if (!data.name)
 			xasprintf(&data.name, "container-%lu", pid);
 
 		cg.name = data.name;
 
-		return container_parent(pid, pipe_2[0], pipe_1[1], &data);
+		return container_parent(&data, sv[0]);
 	}
 
 	if (unshare(data.unshare_flags & ~CLONE_NEWUSER) < 0)
@@ -554,32 +603,5 @@ main(int argc, char **argv)
 	if (verbose)
 		unshare_print_flags(data.unshare_flags);
 
-	if ((pid = fork()) < 0)
-		error(EXIT_FAILURE, errno, "fork");
-
-	if (pid > 0) {
-		int status = 0;
-		pid_t cpid = 0;
-
-		if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
-			error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
-
-		if (write(pipe_2[1], &pid, sizeof(pid)) != sizeof(pid))
-			error(EXIT_FAILURE, errno, "transfer pid");
-		fsync(pipe_2[1]);
-
-		sanitize_fds();
-		free_data(&data);
-
-		while (pid != cpid)
-			if ((cpid = waitpid(-1, &status, 0)) < 0)
-				error(EXIT_FAILURE, errno, "waitpid");
-
-		return WEXITSTATUS(status);
-	}
-
-	close(pipe_2[0]);
-	close(pipe_1[1]);
-
-	return conatainer_child(&data, pipe_1[0], pipe_2[1]);
+	return fork_child(&data, sv[1]);
 }

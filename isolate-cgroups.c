@@ -57,14 +57,14 @@ make_directory(const char *path)
 	}
 }
 
-int
+void
 cgroup_create(struct cgroups *cg)
 {
 	size_t i   = 0;
 	char *path = NULL;
 
-	if (!cg->rootdir)
-		return 1;
+	if (!cg)
+		return;
 
 	xasprintf(&path, "%s/%s", cg->rootdir, cg->group);
 	make_directory(path);
@@ -99,18 +99,16 @@ cgroup_create(struct cgroups *cg)
 
 		i++;
 	}
-
-	return 0;
 }
 
-int
+void
 cgroup_destroy(struct cgroups *cg)
 {
 	size_t i   = 0;
 	char *path = NULL;
 
-	if (!cg->rootdir)
-		return 1;
+	if (!cg)
+		return;
 
 	while (cg->controller && cg->controller[i]) {
 		xasprintf(&path, "%s/%s/%s/%s", cg->rootdir, cg->group, cg->controller[i], cg->name);
@@ -132,18 +130,16 @@ cgroup_destroy(struct cgroups *cg)
 	}
 
 	cg->controller = xfree(cg->controller);
-
-	return 0;
 }
 
-int
+void
 cgroup_add(struct cgroups *cg, pid_t pid)
 {
 	size_t i   = 0;
 	char *path = NULL;
 
-	if (!cg->rootdir)
-		return 1;
+	if (!cg)
+		return;
 
 	while (cg->controller && cg->controller[i]) {
 		int fd;
@@ -161,8 +157,6 @@ cgroup_add(struct cgroups *cg, pid_t pid)
 
 		i++;
 	}
-
-	return 0;
 }
 
 static void
@@ -170,6 +164,9 @@ cgroup_state(struct cgroups *cg, const char *state)
 {
 	int fd;
 	char *path = NULL;
+
+	if (!cg)
+		return;
 
 	xasprintf(&path, "%s/%s/freezer/%s/freezer.state", cg->rootdir, cg->group, cg->name);
 
@@ -225,11 +222,12 @@ cgroup_signal(struct cgroups *cg, int signum)
 	size_t procs        = 0;
 	struct mapfile pids = {};
 
-	if (!cg->rootdir)
-		return 1;
+	if (!cg)
+		return 0;
 
 	xasprintf(&path, "%s/%s/freezer/%s/tasks", cg->rootdir, cg->group, cg->name);
-	open_map(path, &pids, 1);
+	if (open_map(path, &pids, 1) < 0)
+		exit(EXIT_FAILURE);
 
 	if (!pids.size) {
 		close_map(&pids);

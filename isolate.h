@@ -25,7 +25,7 @@ void load_environ(struct mapfile *envs);
 void make_devices(struct mapfile *devs);
 
 // isolate-fds.c
-void open_map(char *filename, struct mapfile *file, int quiet);
+int open_map(char *filename, struct mapfile *file, int quiet);
 void close_map(struct mapfile *file);
 void sanitize_fds(void);
 void cloexec_fds(void);
@@ -67,9 +67,9 @@ int cap_parse_arg(cap_t *caps, char *arg, cap_flag_value_t value);
 void apply_caps(cap_t caps);
 
 // isolate-cgroups.c
-int cgroup_create(struct cgroups *cg);
-int cgroup_destroy(struct cgroups *cg);
-int cgroup_add(struct cgroups *cg, pid_t pid);
+void cgroup_create(struct cgroups *cg);
+void cgroup_destroy(struct cgroups *cg);
+void cgroup_add(struct cgroups *cg, pid_t pid);
 void cgroup_controller(struct cgroups *cg, const char *controller);
 void cgroup_split_controllers(struct cgroups *cg, const char *opts);
 void cgroup_freeze(struct cgroups *cg);

@@ -68,16 +68,20 @@ cloexec_fds(void)
 	errno = 0;
 }
 
-void
+int
 open_map(char *filename, struct mapfile *f, int quiet)
 {
 	struct stat sb;
 
-	if ((f->fd = open(filename, O_RDONLY | O_CLOEXEC)) < 0)
-		error(EXIT_FAILURE, errno, "open: %s", filename);
+	if ((f->fd = open(filename, O_RDONLY | O_CLOEXEC)) < 0) {
+		error(EXIT_SUCCESS, errno, "open: %s", filename);
+		return -1;
+	}
 
-	if (fstat(f->fd, &sb) < 0)
-		error(EXIT_FAILURE, errno, "fstat: %s", filename);
+	if (fstat(f->fd, &sb) < 0) {
+		error(EXIT_SUCCESS, errno, "fstat: %s", filename);
+		return -1;
+	}
 
 	f->size = (size_t) sb.st_size;
 
@@ -86,13 +90,16 @@ open_map(char *filename, struct mapfile *f, int quiet)
 		f->fd = -1;
 		if (!quiet)
 			error(EXIT_SUCCESS, 0, "file %s is empty", filename);
-		return;
+		return 0;
 	}
 
-	if ((f->map = mmap(NULL, f->size, PROT_READ, MAP_PRIVATE, f->fd, 0)) == MAP_FAILED)
-		error(EXIT_FAILURE, errno, "mmap: %s", filename);
+	if ((f->map = mmap(NULL, f->size, PROT_READ, MAP_PRIVATE, f->fd, 0)) == MAP_FAILED) {
+		error(EXIT_SUCCESS, errno, "mmap: %s", filename);
+		return -1;
+	}
 
 	f->filename = filename;
+	return 0;
 }
 
 void
