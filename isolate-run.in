@@ -110,8 +110,12 @@ git_config_get cfg_cgroupsdir "$cfg" "global.cgroupsdir"
 [ -n "$cfg_lockdir" ] || cfg_lockdir="/var/tmp"
 
 cfg_verbose=
-! get_bool 'global.verbose' "isolate.$name.verbose" ||
-	cfg_verbose=1
+cfg_restart=
+cfg_background=
+
+! get_bool 'global.verbose' "isolate.$name.verbose" || cfg_verbose=1
+! get_bool "isolate.$name.restart" || fg_restart=1
+! get_bool "isolate.$name.background" || cfg_background=1
 
 git_config_get cfg_rootdir  "$cfg" "isolate.$name.rootdir"
 git_config_get cfg_uid      "$cfg" "isolate.$name.uid"
@@ -120,7 +124,6 @@ git_config_get cfg_init     "$cfg" "isolate.$name.init"
 git_config_get cfg_hostname "$cfg" "isolate.$name.hostname"
 git_config_get cfg_stdout   "$cfg" "isolate.$name.stdout"
 git_config_get cfg_stdin    "$cfg" "isolate.$name.stdin"
-git_config_get cfg_restart  "$cfg" "isolate.$name.restart"
 
 cfg_cap_add="$(git_config_list "$cfg" "isolate.$name.cap-add" |split_comma)"
 cfg_cap_drop="$(git_config_list "$cfg" "isolate.$name.cap-drop" |split_comma)"
@@ -163,6 +166,8 @@ args="$args $(join_arg --cgroups  $cfg_cgroup)"
 quote_shell_args args "$args"
 eval "set -- $args"
 
+cd /
+
 if ! mkdir -m700 "$cfg_lockdir/$name" >/dev/null 2>&1; then
 	printf "Isolation %s is already running.\n" "$name"
 	exit 1
@@ -186,7 +191,7 @@ run()
 	exit $rc
 }
 
-if [ -n "$cfg_stdin" ]; then
+if [ -n "$cfg_background" ]; then
 	run "$@" &
 else
 	run "$@"
