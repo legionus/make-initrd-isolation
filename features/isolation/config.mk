@@ -5,4 +5,5 @@ ISOLATION_FILES = \
 	/bin/shell-quote \
 	/bin/shell-git-config \
 	/usr/sbin/isolate \
-	/usr/sbin/isolatectl
+	/usr/sbin/isolatectl \
+	/usr/sbin/isolate-run

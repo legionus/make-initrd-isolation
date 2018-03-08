@@ -1,5 +1,6 @@
 isolate
 isolatectl
+isolate-run
 config.ini
 *.[do]
 *.1
