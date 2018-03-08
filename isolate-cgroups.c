@@ -217,43 +217,27 @@ cgroup_unfreeze(struct cgroups *cg)
 size_t
 cgroup_signal(struct cgroups *cg, int signum)
 {
-	char s[LINESIZ];
-	char *a, *nline, *path = NULL;
-	size_t procs        = 0;
-	struct mapfile pids = {};
+	FILE *fd;
+	char *path   = NULL;
+	size_t procs = 0;
 
 	if (!cg)
 		return 0;
 
 	xasprintf(&path, "%s/%s/freezer/%s/tasks", cg->rootdir, cg->group, cg->name);
-	if (open_map(path, &pids, 1) < 0)
-		exit(EXIT_FAILURE);
 
-	if (!pids.size) {
-		close_map(&pids);
-		xfree(path);
-		return 0;
-	}
+	if (!(fd = fopen(path, "r")))
+		error(EXIT_FAILURE, errno, "fopen: %s", path);
 
-	a = pids.map;
-	while (a && a[0]) {
+	while (!feof(fd)) {
 		pid_t pid;
 
-		nline = strchr(a, '\n');
-
-		if (!nline)
-			nline = a + strlen(a);
-
-		if ((nline - a) > LINESIZ)
-			error(EXIT_FAILURE, 0, "%s: string too long", path);
-
-		strncpy(s, a, (size_t)(nline - a));
-		s[nline - a] = '\0';
-
-		a = nline + 1;
-
-		if (sscanf(s, "%u", &pid) != 1)
-			error(EXIT_FAILURE, errno, "unable to read pid: %s", path);
+		errno = 0;
+		if (fscanf(fd, "%u\n", &pid) != 1) {
+			if (errno)
+				error(EXIT_FAILURE, errno, "unable to read pid: %s", path);
+			break;
+		}
 
 		if (kill(pid, signum) < 0)
 			error(EXIT_FAILURE, errno, "Could not send signal %d to pid %d", signum, pid);
@@ -261,7 +245,7 @@ cgroup_signal(struct cgroups *cg, int signum)
 		procs += 1;
 	}
 
-	close_map(&pids);
+	fclose(fd);
 	xfree(path);
 
 	return procs;
