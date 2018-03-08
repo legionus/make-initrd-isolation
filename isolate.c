@@ -172,6 +172,27 @@ free_data(struct container *data)
 	xfree(data->name);
 }
 
+static void
+kill_container(struct container *data)
+{
+	int signum = SIGPWR;
+
+	while (cgroup_signal(data->cgroups, 0) > 0) {
+		cgroup_freeze(data->cgroups);
+		cgroup_signal(data->cgroups, signum);
+		cgroup_unfreeze(data->cgroups);
+		switch (signum) {
+			case SIGPWR:
+				signum = SIGTERM;
+				break;
+			case SIGTERM:
+				signum = SIGKILL;
+				break;
+		}
+		usleep(500);
+	}
+}
+
 static int
 container_parent(struct container *data, int child)
 {
@@ -297,17 +318,15 @@ container_parent(struct container *data, int child)
 								hook_pid = 0;
 							}
 							break;
-
 						case SIGUSR1:
 							hook_pid = run_hook("USR1");
 							break;
-
+						case SIGTERM:
+							kill_container(data);
+							break;
+						case SIGINT:
 						case SIGHUP:
 							break;
-
-						case SIGINT:
-						case SIGTERM:
-							goto done;
 					}
 				}
 			}
@@ -319,17 +338,6 @@ done:
 	}
 
 	close(child);
-
-	size_t procs = cgroup_signal(data->cgroups, 0);
-	int signum   = SIGTERM;
-
-	while (procs > 0) {
-		cgroup_freeze(data->cgroups);
-		procs = cgroup_signal(data->cgroups, signum);
-		cgroup_unfreeze(data->cgroups);
-		signum = SIGKILL;
-		usleep(500);
-	}
 
 	cgroup_destroy(data->cgroups);
 	free_data(data);
@@ -596,6 +604,9 @@ main(int argc, char **argv)
 
 		return container_parent(&data, sv[0]);
 	}
+
+	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
+		error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
 
 	if (unshare(data.unshare_flags & ~CLONE_NEWUSER) < 0)
 		error(EXIT_FAILURE, errno, "unshare");
