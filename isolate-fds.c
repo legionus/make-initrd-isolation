@@ -68,6 +68,22 @@ cloexec_fds(void)
 	errno = 0;
 }
 
+void
+reopen_fd(const char *filename, int fileno)
+{
+	int fd = open(filename, O_RDWR | O_CREAT, 0644);
+
+	if (fd < 0)
+		error(EXIT_FAILURE, errno, "open: %s", filename);
+
+	if (fd != fileno) {
+		if (dup2(fd, fileno) != fileno)
+			error(EXIT_FAILURE, errno, "dup2(%d, %d)", fd, fileno);
+		if (close(fd) < 0)
+			error(EXIT_FAILURE, errno, "close(%d)", fd);
+	}
+}
+
 int
 open_map(char *filename, struct mapfile *f, int quiet)
 {

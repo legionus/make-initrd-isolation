@@ -29,6 +29,8 @@ struct container {
 	char *hostname;
 	char *devfile;
 	char *envfile;
+	char *input;
+	char *output;
 	cap_t caps;
 	int nice;
 	int no_new_privs;
@@ -39,12 +41,13 @@ struct container {
 	struct cgroups *cgroups;
 };
 
-const char short_opts[]         = "vVhA:D:n:U:u:g:c:m:e:p:";
+const char short_opts[]         = "vVhA:b:D:n:U:u:g:c:m:e:p:";
 const struct option long_opts[] = {
 	{ "name", required_argument, NULL, 'n' },
 	{ "cap-add", required_argument, NULL, 'A' },
 	{ "cap-drop", required_argument, NULL, 'D' },
 	{ "cgroups", required_argument, NULL, 'c' },
+	{ "background", no_argument, NULL, 'b' },
 	{ "mount", required_argument, NULL, 'm' },
 	{ "setenv", required_argument, NULL, 'e' },
 	{ "uid", required_argument, NULL, 'u' },
@@ -60,6 +63,8 @@ const struct option long_opts[] = {
 	{ "environ", required_argument, NULL, 4 },
 	{ "hostname", required_argument, NULL, 5 },
 	{ "cgroup-dir", required_argument, NULL, 6 },
+	{ "input", required_argument, NULL, 7 },
+	{ "output", required_argument, NULL, 8 },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -80,6 +85,8 @@ usage(int code)
 	        " --devices=FILE        create devices listed in the FILE\n"
 	        " --hostname=STR        UTS name (hostname) of the container\n"
 	        " --cgroup-dir=DIR      location of cgroup FS\n"
+	        " --input=FILE          use FILE as stdin of the container\n"
+	        " --output=FILE         use FILE as stdout and stderr of the container\n"
 	        " -U, --unshare=STR     unshare everything I know\n"
 	        " -A, --cap-add=list    add Linux capabilities\n"
 	        " -D, --cap-drop=list   drop Linux capabilities\n"
@@ -89,6 +96,7 @@ usage(int code)
 	        " -e, --setenv=FILE     sets new environ from file\n"
 	        " -m, --mount=FSTAB     mounts filesystems using FSTAB file\n"
 	        " -p, --pidfile=FILE    write pid to FILE\n"
+	        " -b, --background      run as a background process\n"
 	        " -h, --help            display this help and exit\n"
 	        " -v, --verbose         print a message for each action\n"
 	        " -V, --version         output version information and exit\n"
@@ -358,6 +366,14 @@ conatainer_child(struct container *data, int parent)
 	program_subname      = "child";
 	error_print_progname = print_program_subname;
 
+	if (data->input)
+		reopen_fd(data->input, STDIN_FILENO);
+
+	if (data->output) {
+		reopen_fd(data->output, STDOUT_FILENO);
+		reopen_fd(data->output, STDERR_FILENO);
+	}
+
 	if (data->unshare_flags & CLONE_NEWNS) {
 		if (mount("/", "/", "none", MS_PRIVATE | MS_REC, NULL) < 0 && errno != EINVAL)
 			error(EXIT_FAILURE, errno, "mount(MS_PRIVATE): %s", data->root);
@@ -521,6 +537,12 @@ main(int argc, char **argv)
 			case 6:
 				cg.rootdir = optarg;
 				break;
+			case 7:
+				data.input = optarg;
+				break;
+			case 8:
+				data.output = optarg;
+				break;
 			case 'n':
 				data.name = xfree(data.name);
 				data.name = xstrdup(optarg);
@@ -536,6 +558,9 @@ main(int argc, char **argv)
 			case 'c':
 				if (strlen(optarg) > 0)
 					cgroup_split_controllers(&cg, optarg);
+				break;
+			case 'b':
+				background = 1;
 				break;
 			case 'p':
 				pidfile = optarg;
@@ -584,6 +609,9 @@ main(int argc, char **argv)
 		error(EXIT_FAILURE, errno, "access: %s", data.root);
 
 	sanitize_fds();
+
+	if (background && daemon(1, 1) < 0)
+		error(EXIT_FAILURE, errno, "daemon");
 
 	if (setgroups((size_t) 0, NULL) < 0)
 		error(EXIT_FAILURE, errno, "setgroups");

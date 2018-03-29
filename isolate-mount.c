@@ -278,7 +278,7 @@ do_mount(const char *newroot, struct mntent **mounts)
 
 	while (mounts && mounts[i]) {
 		char *mpoint;
-		struct mountflags mflags = {};
+		struct mountflags mflags = { 0 };
 
 		parse_mountopts(mounts[i]->mnt_opts, &mflags);
 

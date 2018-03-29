@@ -27,6 +27,7 @@ void make_devices(struct mapfile *devs);
 // isolate-fds.c
 int open_map(char *filename, struct mapfile *file, int quiet);
 void close_map(struct mapfile *file);
+void reopen_fd(const char *filename, int fileno);
 void sanitize_fds(void);
 void cloexec_fds(void);
 
