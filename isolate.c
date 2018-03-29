@@ -19,6 +19,7 @@
 #include "isolate.h"
 
 int verbose = 0;
+char *pidfile = NULL;
 const char *program_subname;
 
 struct container {
@@ -339,6 +340,9 @@ done:
 
 	close(child);
 
+	if (pidfile)
+		unlink(pidfile);
+
 	cgroup_destroy(data->cgroups);
 	free_data(data);
 
@@ -475,8 +479,8 @@ int
 main(int argc, char **argv)
 {
 	int c;
+	int background = 0;
 	pid_t pid;
-	char *pidfile         = NULL;
 	struct container data = {};
 	struct cgroups cg     = {};
 
