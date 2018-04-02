@@ -1,0 +1,23 @@
+#!/bin/sh
+
+. uevent-sh-functions
+
+configdir="/etc/isolate"
+
+handler() {
+	[ -d "$configdir/$NAME" ] ||
+		return 0
+
+	rm -f "$e" ||:
+
+	/etc/rc.d/init.d/udev condstop
+
+	mkdir -p -- "/.initrd/isolate/$NAME"
+
+	isolatectl start "$NAME"
+}
+
+for e in "$eventdir"/isolation.*; do
+	[ -f "$e" ] || break
+	( . "$e"; handler; ) ||:
+done
