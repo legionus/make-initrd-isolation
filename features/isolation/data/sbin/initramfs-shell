@@ -1,0 +1,5 @@
+#!/bin/sh -efu
+
+export PS1='(initramfs)$ '
+
+exec /bin/sh -il +o monitor
