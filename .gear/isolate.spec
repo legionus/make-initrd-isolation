@@ -8,7 +8,10 @@ Group: System/Base
 
 Packager: Alexey Gladkov <legion@altlinux.ru>
 
+Requires: libshell >= 0.4.4
+
 BuildRequires: help2man
+BuildRequires: libcap-devel
 
 Source0: %name-%version.tar
 
