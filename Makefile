@@ -50,7 +50,7 @@ DEP      = $(call quiet_cmd,DEP,$<,$(CC))
 
 CFLAGS = $(warning_CFLAGS) -I. -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
 
-bin_PROGS =
+bin_PROGS = shell-git-config-env
 sbin_PROGS = isolate isolatectl isolate-run
 config_ini = config.ini
 
@@ -79,7 +79,7 @@ all: $(config_ini) $(bin_PROGS) $(sbin_PROGS)
 %: %.in
 	$(SED) \
 		-e 's,@VERSION@,$(VERSION),g' \
-		-e 's,@CONFIG@,$(sysconfdir),g' \
+		-e 's,@CONFDIR@,$(sysconfdir),g' \
 		-e 's,@STATEDIR@,$(statedir),g' \
 		-e 's,@BINDIR@,$(bindir),g' \
 		-e 's,@SBINDIR@,$(sbindir),g' \
@@ -99,6 +99,7 @@ format:
 
 install: $(config_ini) $(sbin_PROGS)
 	$(MKDIR_P) -- $(DESTDIR)$(bindir) $(DESTDIR)$(sbindir)
+	$(INSTALL) -p -m644 $(bin_PROGS) $(DESTDIR)$(bindir)/
 	$(INSTALL) -p -m755 $(sbin_PROGS) $(DESTDIR)$(sbindir)/
 	$(MKDIR_P) -m700 -- $(DESTDIR)$(sysconfdir)/isolate
 	$(INSTALL) -p -m644 $(config_ini) $(DESTDIR)$(sysconfdir)/isolate/

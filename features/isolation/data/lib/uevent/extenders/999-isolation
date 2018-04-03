@@ -5,9 +5,8 @@
 [ "${RDMODE-}" = 'live' ] && [ -n "${RDCONTAINER-}" ] ||
 	exit 0
 
+. shell-git-config-env
 . uevent-sh-functions
-. rdshell-sh-functions
-. shell-git-config
 
 configdir=/etc/isolate
 
@@ -42,20 +41,33 @@ mountfs()
 	done < /etc/fstab
 }
 
-for dir in "$configdir"/*; do
-	[ -d "$dir" ] ||
-		continue
+lockdir=/var/tmp
+get_subsections_handler()
+{
+	local rootdir= name="$1"
 
-	name="${dir##*/}"
-	git_config_get rootdir "$configdir/config.ini" "isolate.$name.rootdir"
+	[ ! -f "$lockdir/$name/pid" ] &&
+		[ ! -e "$filterdir/isolation.$name" ] &&
+		[ ! -e "$eventdir/isolation.$name" ] ||
+		return 0
+
+	get_var rootdir "isolate" "$name" "root-dir"
+	[ -n "$rootdir" ] ||
+		return 0
 
 	if [ -n "${ROOTONLY-}" ]; then
 		[ "$rootdir" = "$rootmnt" ] ||
-			continue
+			return 0
 	fi
 
 	[ -n "$rootdir" ] && mountfs ||
-		continue
+		return 0
 
-	isolatectl start "$name"
-done
+	event="$(make_event)"
+	echo "NAME='$name'" > "$event"
+	publish_event "isolation.$name" "$event"
+}
+
+git_config_env "$configdir/config.ini"
+get_var lockdir "global" "" "lock-dir"
+get_subsections "isolate"

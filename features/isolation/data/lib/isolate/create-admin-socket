@@ -1,0 +1,30 @@
+#!/bin/sh -efux
+
+name="$CONTAINER_NAME"
+
+. "/etc/isolate/config"
+. "/etc/isolate/$name/config"
+
+cfgfile='/etc/inetd.conf'
+sockfile="/.initrd/isolate/$name/sock"
+
+[ ! -e "$sockfile" ] ||
+	exit 0
+
+update_config()
+{
+	if [ -f "$cfgfile" ]; then
+		local svc dummy
+		while read svc dummy; do
+			[ "$sockfile" != "$svc" ] ||
+				return 0
+		done < "$cfgfile"
+	fi
+	printf >> "$cfgfile" \
+		'%s stream unix nowait root /sbin/initramfs-shell' "$sockfile"
+}
+
+update_config
+
+/etc/init.d/inetd condstop
+/etc/init.d/inetd start

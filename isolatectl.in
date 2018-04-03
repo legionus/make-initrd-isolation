@@ -1,12 +1,11 @@
-#!/bin/sh -efu
+#!/bin/sh -eu
 
 . shell-error
-. shell-git-config
+. shell-git-config-env
 
 isolate="@SBINDIR@/isolate-run"
-configdir="@CONFIG@/isolate"
-
-cfg="$configdir/config.ini"
+configdir="@CONFDIR@/isolate"
+lockdir="/var/tmp"
 
 show_help()
 {
@@ -45,38 +44,39 @@ show_usage()
 
 start()
 {
-	if [ -d "$cfg_lockdir/$name" ]; then
+	if status; then
 		printf "Isolation %s is already running.\n" "$name"
 		return 0
 	fi
+
+	mkdir -p -- "$lockdir/$name"
 
 	"$isolate" "$name"
 }
 
 stop()
 {
-	local pid
+	local pid=
 
-	if [ ! -d "$cfg_lockdir/$name" ]; then
+	if [ ! -f "$lockdir/$name/pid" ]; then
 		printf "Isolation %s is not running.\n" "$name"
 		return 1
 	fi
 
-	[ ! -f "$cfg_lockdir/$name/pid" ] ||
-		read pid < "$cfg_lockdir/$name/pid" ||:
+	read pid < "$lockdir/$name/pid" ||:
 	[ -z "$pid" ] ||
-		kill -s TERM "$pid" ||:
+		kill -s TERM "$pid" >/dev/null 2>&1 ||:
 
-	rm -rf -- "$cfg_lockdir/$name" >/dev/null 2>&1 ||:
+	rm -rf -- "$lockdir/$name" >/dev/null 2>&1 ||:
 }
 
 status()
 {
-	local pid
+	local pid=
 
-	[ -d "$cfg_lockdir/$name" ] &&
-		read pid < "$cfg_lockdir/$name/pid" &&
-		kill -0 "$pid" ||
+	[ -f "$lockdir/$name/pid" ] &&
+		read pid < "$lockdir/$name/pid" &&
+		kill -0 "$pid" >/dev/null 2>&1 ||
 		return 1
 }
 
@@ -107,22 +107,22 @@ done
 
 action="$1"; shift
 
-[ -s "$cfg" ] ||
-	fatal "config file not found: $cfg"
+git_config_env "$configdir/config.ini"
 
 if [ "$#" = 0 ] && [ "$action" = "status" ]; then
-	args="$(git_config_list_sections "$cfg" 'isolate' |cut -f2)"
+	args=
+	get_subsections_handler() { args="$args $1"; }
+	get_subsections "isolate"
 	set -- $args
 fi
 
 [ "$#" != 0 ] ||
 	show_usage "Error: more arguments required"
 
-git_config_get cfg_lockdir "$cfg" "global.lockdir"
-[ -n "$cfg_lockdir" ] || cfg_lockdir="/var/tmp"
+get_var lockdir "global" "" "lock-dir"
 
 rc=0
-for name; do
+for name in "$@"; do
 	case "$action" in
 		start)
 			start || rc=$?
@@ -139,11 +139,6 @@ for name; do
 			else
 				rc=1
 				s=stopped
-
-				[ ! -d "$cfg_lockdir/$name" ] || {
-					rc=2
-					s=dead
-				}
 			fi
 			printf "Isolation %s is %s.\n" "$name" "$s"
 			;;

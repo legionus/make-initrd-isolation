@@ -3,12 +3,10 @@
 . shell-error
 . shell-var
 . shell-quote
-. shell-git-config
+. shell-git-config-env
 
 isolate="@SBINDIR@/isolate"
-configdir="@CONFIG@/isolate"
-
-cfg="$configdir/config.ini"
+configdir="@CONFDIR@/isolate"
 
 show_help()
 {
@@ -45,34 +43,21 @@ show_usage()
 	exit 1
 }
 
-split_comma()
-{
-	local s IFS=', 	'
-	while read s; do
-		printf '%s\n' $s
-	done
-}
-
-join_arg()
-{
-	local arg="$1"; shift
-	local a res=
-	for a; do
-		res="$res,$a"
-	done
-	[ -z "${res#,}" ] || printf "%s=%s" "$arg" "${res#,}"
-}
-
 get_bool()
 {
-	local location rc=1 v
-	for location; do
-		git_config_location_exists "$cfg" "$location" ||
-			continue
-		git_config_get v "$cfg" "$location"
-		shell_var_is_yes "$v" && rc=0 || rc=1
-	done
-	return $rc
+	local rc= value=
+	get_var value "$2" "$3" "$4"
+	if [ -n "$value" ]; then
+		shell_var_is_yes "$value" && rc=0 || rc=1
+	fi
+	eval "$1=$rc"
+}
+
+add_arg()
+{
+	local value=
+	get_var value "$2" "$3" "$4" "${5-}"
+	[ -z "$value" ] || args="$args $1='$value'"
 }
 
 TEMP=`getopt -n $PROG -o 'h,V' -l 'help,version' -- "$@"` ||
@@ -101,36 +86,18 @@ done
 
 name="$1"; shift
 
-[ -s "$cfg" ] ||
-	fatal "config file not found: $cfg"
+[ -s "$configdir/config.ini" ] ||
+	fatal "config file not found: $configdir/config.ini"
 
-git_config_get cfg_lockdir "$cfg" "global.lockdir"
-git_config_get cfg_cgroupsdir "$cfg" "global.cgroupsdir"
+git_config_env "$configdir/config.ini"
 
-[ -n "$cfg_lockdir" ] || cfg_lockdir="/var/tmp"
+lockdir="/var/tmp"
+rootdir=
 
-cfg_verbose=
-cfg_restart=
-cfg_background=
+get_var lockdir "global" "" "lock-dir"
+get_var rootdir "isolate" "$name" "root-dir"
 
-! get_bool 'global.verbose' "isolate.$name.verbose" || cfg_verbose=1
-! get_bool "isolate.$name.restart" || fg_restart=1
-! get_bool "isolate.$name.background" || cfg_background=1
-
-git_config_get cfg_rootdir  "$cfg" "isolate.$name.rootdir"
-git_config_get cfg_uid      "$cfg" "isolate.$name.uid"
-git_config_get cfg_gid      "$cfg" "isolate.$name.gid"
-git_config_get cfg_init     "$cfg" "isolate.$name.init"
-git_config_get cfg_hostname "$cfg" "isolate.$name.hostname"
-git_config_get cfg_stdout   "$cfg" "isolate.$name.stdout"
-git_config_get cfg_stdin    "$cfg" "isolate.$name.stdin"
-
-cfg_cap_add="$(git_config_list "$cfg" "isolate.$name.cap-add" |split_comma)"
-cfg_cap_drop="$(git_config_list "$cfg" "isolate.$name.cap-drop" |split_comma)"
-cfg_unshare="$(git_config_list "$cfg" "isolate.$name.unshare" |split_comma)"
-cfg_cgroup="$(git_config_list "$cfg" "isolate.$name.cgroup" |split_comma)"
-
-if [ ! -d "$cfg_rootdir" ]; then
+if [ ! -d "$rootdir" ]; then
 	printf "Isolation %s do not have root directory.\n" "$name"
 	exit 1
 fi
@@ -144,55 +111,47 @@ if [ -s "$initenv" ]; then
 fi
 
 # Expand variables
-cfg_init="$(eval "echo \"$cfg_init\"")"
+init=
+get_var init "isolate" "$name" "init"
+init="$(eval "printf '%s' \"${init:-/bin/sh}\"")"
 
 args=
 args="$args --name='$name'"
-args="$args --pidfile='$cfg_lockdir/$name/pid'"
-args="$args ${cfg_verbose:+-v}"
-args="$args ${cfg_cgroupsdir:+--cgroup-dir='$cfg_cgroupsdir'}"
-args="$args ${cfg_uid:+--uid='$cfg_uid'}"
-args="$args ${cfg_gid:+--gid='$cfg_gid'}"
-args="$args ${cfg_hostname:+--hostname='$cfg_hostname'}"
-args="$args $(join_arg --unshare  $cfg_unshare)"
-args="$args $(join_arg --cap-drop $cfg_cap_drop)"
-args="$args $(join_arg --cap-add  $cfg_cap_add)"
-args="$args $(join_arg --cgroups  $cfg_cgroup)"
+args="$args --pidfile='$lockdir/$name/pid'"
 
-[ ! -f "$configdir/$name/fstab"   ] || args="$args --mount='$configdir/$name/fstab'"
-[ ! -f "$configdir/$name/environ" ] || args="$args --environ='$configdir/$name/environ'"
-[ ! -f "$configdir/$name/devices" ] || args="$args --devices='$configdir/$name/devices'"
+verbose=
+get_bool verbose "isolate" "$name" "verbose"
+[ -n "$verbose" ] || get_bool verbose "global" "" "verbose"
+[ "$verbose" = 1 ] && args="$args -v" ||:
+
+bg=
+get_bool bg "isolate" "$name" "background"
+[ "$bg" = 1 ] && args="$args --background" ||:
+
+add_arg --cgroup-dir "global"  ""      "cgroups-dir"
+add_arg --uid        "isolate" "$name" "uid"
+add_arg --gid        "isolate" "$name" "gid"
+add_arg --hostname   "isolate" "$name" "hostname"
+add_arg --input      "isolate" "$name" "input"
+add_arg --output     "isolate" "$name" "output"
+add_arg --mount      "isolate" "$name" "fstab-file"
+add_arg --environ    "isolate" "$name" "environ-file"
+add_arg --devices    "isolate" "$name" "devices-file"
+add_arg --unshare    "isolate" "$name" "unshare" "all=,"
+add_arg --cap-drop   "isolate" "$name" "cap-drop" "all=,"
+add_arg --cap-add    "isolate" "$name" "cap-add" "all=,"
+add_arg --cgroups    "isolate" "$name" "cgroups" "all=,"
+
+prerun_hook=
+postrun_hook=
+
+get_var prerun_hook  "isolate" "$name" "pre-run-hook"
+get_var postrun_hook "isolate" "$name" "post-run-hook"
+
+[ -z "$prerun_hook"  ] || export CONTAINER_HOOK_PRERUN="$prerun_hook"
+[ -z "$postrun_hook" ] || export CONTAINER_HOOK_POSTRUN="$postrun_hook"
 
 quote_shell_args args "$args"
 eval "set -- $args"
 
-cd /
-
-if ! mkdir -m700 "$cfg_lockdir/$name" >/dev/null 2>&1; then
-	printf "Isolation %s is already running.\n" "$name"
-	exit 1
-fi
-
-[ -z "$cfg_stdin" ] ||
-	eval exec ${cfg_stdin:+<"$cfg_stdin"} ${cfg_stdout:+>"$cfg_stdout" 2>&1}
-
-run()
-{
-	while :; do
-		rc=0
-		"$isolate" "$@" -- "$cfg_rootdir" ${cfg_init:-/bin/sh} || rc=$?
-
-		[ -n "$cfg_restart" ] ||
-			break
-	done
-
-	rm -rf -- "$cfg_lockdir/$name" >/dev/null 2>&1 ||:
-
-	exit $rc
-}
-
-if [ -n "$cfg_background" ]; then
-	run "$@" &
-else
-	run "$@"
-fi
+exec "$isolate" "$@" -- "$rootdir" $init

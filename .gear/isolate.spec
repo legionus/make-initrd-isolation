@@ -43,6 +43,7 @@ AutoReq: noshell, noshebang
 %dir %_sysconfdir/isolate/system
 %config(noreplace) %_sysconfdir/isolate/config.ini
 %config(noreplace) %_sysconfdir/isolate/system/*
+%_bindir/*
 %_sbindir/*
 %_localstatedir/*
 
