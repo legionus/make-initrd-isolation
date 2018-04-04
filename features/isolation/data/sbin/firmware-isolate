@@ -1,0 +1,27 @@
+#!/bin/sh -efu
+
+load_firmware()
+{
+	[ "$SUBSYSTEM" == "firmware" -a "$ACTION" == "add" ] && [ -f "${1-}/lib/firmware/$FIRMWARE" ] ||
+		return 0
+	echo 1 > "/sys/$DEVPATH/loading"
+	cat "${1-}/lib/firmware/$FIRMWARE" > "/sys/$DEVPATH/data"
+	echo 0 > "/sys/$DEVPATH/loading"
+	exit
+}
+
+load_firmware
+
+. shell-git-config-env
+
+rootdir=
+get_subsections_handler()
+{
+	get_var rootdir "isolate" "$1" "root-dir"
+	[ -z "$rootdir" ] || load_firmware "$rootdir"
+}
+
+git_config_env /etc/isolate/config.ini
+get_subsections isolate
+
+echo -1 > "/sys/$DEVPATH/loading"

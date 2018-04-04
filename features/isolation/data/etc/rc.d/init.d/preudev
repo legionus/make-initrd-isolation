@@ -1,0 +1,24 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:            preudev
+# Required-Start:      mountvirtfs
+# Should-Start:
+# X-Start-Before:      udev
+# Required-Stop:
+# Should-Stop:
+# Default-Start:       3 4 5
+# Default-Stop:
+# Short-Description:   Mounts tmpfs filesystem for udevdb.
+# Description:         Mounts tmpfs filesystem for udevdb.
+# X-LFS-Provided-By:   LFS
+### END INIT INFO
+
+if [ -n "$1" -a "$1" != start ]; then
+	exit 0
+fi
+
+. /etc/init.d/template
+
+d=/run/udev
+[ ! -d "$d" ] || mountpoint -q "$d" ||
+	action "Mounting filesystem [$d]:" mount -t tmpfs runfs "$d"

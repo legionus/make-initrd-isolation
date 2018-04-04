@@ -1,0 +1,21 @@
+#!/bin/sh -efu
+
+/sbin/modprobe "$@" && exit ||:
+
+. shell-git-config-env
+
+args="$*"
+rootdir=
+
+get_subsections_handler()
+{
+	get_var rootdir "isolate" "$1" "root-dir"
+	[ -n "$rootdir" ] && [ -x "$rootdir/sbin/modprobe" ] ||
+		return 0
+	chroot "$rootdir" /sbin/modprobe $args && exit ||:
+}
+
+git_config_env /etc/isolate/config.ini
+get_subsections isolate
+
+exit 1
