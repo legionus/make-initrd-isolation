@@ -47,10 +47,12 @@ get_bool()
 {
 	local rc= value=
 	get_var value "$2" "$3" "$4"
+	echo value=$value
 	if [ -n "$value" ]; then
-		shell_var_is_yes "$value" && rc=0 || rc=1
+		rc=no
+		! shell_var_is_yes "$value" || rc=yes
 	fi
-	eval "$1=$rc"
+	eval "$1=\$rc"
 }
 
 add_arg()
@@ -91,6 +93,12 @@ name="$1"; shift
 
 git_config_env "$configdir/config.ini"
 
+exists=0
+get_subsections_handler() { [ "$1" != "$name" ] || exists=1; }
+get_subsections isolate
+[ "$exists" = 1 ] ||
+	fatal "subsection not found: $name"
+
 lockdir="/var/tmp"
 rootdir=
 
@@ -122,11 +130,11 @@ args="$args --pidfile='$lockdir/$name/pid'"
 verbose=
 get_bool verbose "isolate" "$name" "verbose"
 [ -n "$verbose" ] || get_bool verbose "global" "" "verbose"
-[ "$verbose" = 1 ] && args="$args -v" ||:
+[ "$verbose" = yes ] && args="$args -v" ||:
 
 bg=
 get_bool bg "isolate" "$name" "background"
-[ "$bg" = 1 ] && args="$args --background" ||:
+[ "$bg" = yes ] && args="$args --background" ||:
 
 add_arg --cgroup-dir "global"  ""      "cgroups-dir"
 add_arg --uid        "isolate" "$name" "uid"
