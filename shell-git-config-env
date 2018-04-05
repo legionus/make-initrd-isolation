@@ -97,7 +97,7 @@ get_var()
 				return 0
 		fi
 
-		eval "n=\"\$v_$idx${sidx:+_$sidx}_x\""
+		eval "n=\"\${v_$idx${sidx:+_$sidx}_x:-0}\""
 
 		while [ "$i" -lt "$n" ]; do
 			eval "v=\"\$v_$idx${sidx:+_$sidx}_x_${i}_n\""
