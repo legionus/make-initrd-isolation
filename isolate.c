@@ -428,8 +428,14 @@ conatainer_child(struct container *data, int parent)
 	if (data->devfile)
 		make_devices(&devs);
 
-	if (data->caps)
+	if (data->caps) {
+		if (verbose) {
+			char *caps = cap_to_text(data->caps, NULL);
+			dprintf(STDOUT_FILENO, "New capabilities: %s\n", caps);
+			cap_free(caps);
+		}
 		apply_caps(data->caps);
+	}
 
 	if (prctl(PR_SET_KEEPCAPS, 1) < 0)
 		error(EXIT_FAILURE, errno, "prctl(PR_SET_KEEPCAPS)");

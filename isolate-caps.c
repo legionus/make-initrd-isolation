@@ -48,13 +48,11 @@ cap_change_flag(cap_t caps, const char *capname, const cap_flag_value_t value)
 	}
 
 	for (i = 0; cflags[i].name; i++) {
-		if (!cap_set_flag(caps, cflags[i].value, 1, &cap, value))
-			continue;
-
-		error(EXIT_SUCCESS, 0, "unable to %s capability (%s): %s",
-		      (value == CAP_CLEAR ? "unset" : "set"), cflags[i].name, cap_to_name(cap));
-
-		return -1;
+		if (cap_set_flag(caps, cflags[i].value, 1, &cap, value) < 0) {
+			error(EXIT_SUCCESS, 0, "unable to %s capability (%s): %s",
+			      (value == CAP_CLEAR ? "unset" : "set"), cflags[i].name, cap_to_name(cap));
+			return -1;
+		}
 	}
 
 	return 0;
@@ -83,6 +81,26 @@ cap_parse_arg(cap_t *caps, char *arg, const cap_flag_value_t value)
 void
 apply_caps(cap_t caps)
 {
+	int status;
+	cap_value_t cap;
+	cap_t cur_caps = cap_get_proc();
+
+	if (!(status = cap_compare(cur_caps, caps)))
+		return;
+
+	for (cap = CAP_LAST_CAP; cap >= 0; cap--) {
+		cap_flag_value_t v = CAP_CLEAR;
+
+		if (cap_get_flag(caps, cap, CAP_EFFECTIVE, &v) < 0)
+			error(EXIT_FAILURE, errno, "cap_get_flag");
+
+		if (v == CAP_SET)
+			continue;
+
+		if (cap_drop_bound(cap) < 0)
+			error(EXIT_FAILURE, errno, "unable to unbound capability: %s", cap_to_name(cap));
+	}
+
 	if (!CAP_IS_SUPPORTED(CAP_SETFCAP))
 		error(EXIT_FAILURE, 0, "the kernel does not support CAP_SETFCAP");
 
