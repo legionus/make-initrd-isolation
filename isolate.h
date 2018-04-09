@@ -22,7 +22,7 @@ int setenvf(const char *name, const char *fmt, ...);
 void load_environ(struct mapfile *envs);
 
 // isolate-mknod.c
-void make_devices(struct mapfile *devs);
+void make_devices(const char *rootdir, struct mapfile *devs);
 
 // isolate-fds.c
 int open_map(char *filename, struct mapfile *file, int quiet);

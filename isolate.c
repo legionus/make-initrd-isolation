@@ -426,7 +426,6 @@ static int
 conatainer_child(struct container *data, int parent)
 {
 	struct mapfile envs = {};
-	struct mapfile devs = {};
 
 	program_subname      = "child";
 	error_print_progname = print_program_subname;
@@ -455,6 +454,24 @@ conatainer_child(struct container *data, int parent)
 		}
 	}
 
+	if (data->unshare_flags & CLONE_NEWNET)
+		setup_network();
+
+	if (data->hostname && sethostname(data->hostname, strlen(data->hostname)) < 0)
+		error(EXIT_FAILURE, errno, "sethostname");
+
+	if (data->devfile) {
+		struct mapfile devs = {};
+
+		if (open_map(data->devfile, &devs, 0) < 0)
+			return EXIT_FAILURE;
+
+		make_devices(data->root, &devs);
+	}
+
+	if (data->envfile && open_map(data->envfile, &envs, 0) < 0)
+		return EXIT_FAILURE;
+
 	if (data->unshare_flags & CLONE_NEWUSER) {
 		if (unshare(CLONE_NEWUSER) < 0)
 			error(EXIT_FAILURE, errno, "unshare(CLONE_NEWUSER)");
@@ -462,18 +479,6 @@ conatainer_child(struct container *data, int parent)
 		if (verbose)
 			unshare_print_flags(CLONE_NEWUSER);
 	}
-
-	if (data->unshare_flags & CLONE_NEWNET)
-		setup_network();
-
-	if (data->hostname && sethostname(data->hostname, strlen(data->hostname)) < 0)
-		error(EXIT_FAILURE, errno, "sethostname");
-
-	if (data->devfile && open_map(data->devfile, &devs, 0) < 0)
-		return EXIT_FAILURE;
-
-	if (data->envfile && open_map(data->envfile, &envs, 0) < 0)
-		return EXIT_FAILURE;
 
 	if (send_cmd(parent, CMD_CLIENT_READY, NULL, 0) < 0 ||
 	    recv_cmd(parent, CMD_CLIENT_EXEC) < 0)
@@ -490,9 +495,6 @@ conatainer_child(struct container *data, int parent)
 
 	if (nice(data->nice) < 0)
 		error(EXIT_FAILURE, errno, "nice: %d", data->nice);
-
-	if (data->devfile)
-		make_devices(&devs);
 
 	if (data->caps) {
 		if (verbose) {
@@ -723,7 +725,7 @@ main(int argc, char **argv)
 		error(EXIT_FAILURE, errno, "unshare");
 
 	if (verbose)
-		unshare_print_flags(data.unshare_flags);
+		unshare_print_flags(data.unshare_flags & ~CLONE_NEWUSER);
 
 	return fork_child(&data, sv[1]);
 }

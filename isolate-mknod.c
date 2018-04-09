@@ -15,7 +15,7 @@
 #define LINESIZ 256
 
 void
-make_devices(struct mapfile *devs)
+make_devices(const char *rootdir, struct mapfile *devs)
 {
 	size_t i;
 	char *nline, *a;
@@ -24,6 +24,8 @@ make_devices(struct mapfile *devs)
 	i = 1;
 	a = devs->map;
 	while (a && a[0]) {
+		char *devpath = NULL;
+
 		char *path  = NULL;
 		mode_t mode = 0;
 		uid_t uid   = (uid_t) -1;
@@ -73,15 +75,18 @@ make_devices(struct mapfile *devs)
 				error(EXIT_FAILURE, 0, "%s:%lu: bad device type", devs->filename, i);
 		}
 
-		if (unlink(path) < 0 && errno != ENOENT)
-			error(EXIT_FAILURE, errno, "unlink: %s", path);
+		xasprintf(&devpath, "%s/%s", rootdir, path);
 
-		if (mknod(path, mode, makedev(major, minor)) < 0)
-			error(EXIT_FAILURE, errno, "mknod: %s", path);
+		if (unlink(devpath) < 0 && errno != ENOENT)
+			error(EXIT_FAILURE, errno, "unlink: %s", devpath);
 
-		if (lchown(path, uid, gid) < 0)
-			error(EXIT_FAILURE, errno, "lchown: %s", path);
+		if (mknod(devpath, mode, makedev(major, minor)) < 0)
+			error(EXIT_FAILURE, errno, "mknod: %s", devpath);
 
+		if (lchown(devpath, uid, gid) < 0)
+			error(EXIT_FAILURE, errno, "lchown: %s", devpath);
+
+		devpath = xfree(devpath);
 		path = xfree(path);
 		i++;
 	}
