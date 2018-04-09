@@ -29,6 +29,7 @@ struct container {
 	char *hostname;
 	char *devfile;
 	char *envfile;
+	char *seccomp;
 	char *input;
 	char *output;
 	cap_t caps;
@@ -65,6 +66,7 @@ const struct option long_opts[] = {
 	{ "cgroup-dir", required_argument, NULL, 6 },
 	{ "input", required_argument, NULL, 7 },
 	{ "output", required_argument, NULL, 8 },
+	{ "seccomp", required_argument, NULL, 9 },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -83,6 +85,7 @@ usage(int code)
 	        " --nice=NUM            change process priority\n"
 	        " --environ=FILE        set environment variables listed in the FILE\n"
 	        " --devices=FILE        create devices listed in the FILE\n"
+	        " --seccomp=FILE        load seccomp profile from the FILE\n"
 	        " --hostname=STR        UTS name (hostname) of the container\n"
 	        " --cgroup-dir=DIR      location of cgroup FS\n"
 	        " --input=FILE          use FILE as stdin of the container\n"
@@ -425,6 +428,7 @@ done:
 static int
 conatainer_child(struct container *data, int parent)
 {
+	FILE *seccomp_fd = NULL;
 	struct mapfile envs = {};
 
 	program_subname      = "child";
@@ -472,6 +476,9 @@ conatainer_child(struct container *data, int parent)
 	if (data->envfile && open_map(data->envfile, &envs, 0) < 0)
 		return EXIT_FAILURE;
 
+	if (data->seccomp && !(seccomp_fd = fopen(data->seccomp, "r")))
+		error(EXIT_FAILURE, errno, "fopen: %s", data->seccomp);
+
 	if (data->unshare_flags & CLONE_NEWUSER) {
 		if (unshare(CLONE_NEWUSER) < 0)
 			error(EXIT_FAILURE, errno, "unshare(CLONE_NEWUSER)");
@@ -495,6 +502,11 @@ conatainer_child(struct container *data, int parent)
 
 	if (nice(data->nice) < 0)
 		error(EXIT_FAILURE, errno, "nice: %d", data->nice);
+
+	if (data->seccomp) {
+		load_seccomp(seccomp_fd);
+		fclose(seccomp_fd);
+	}
 
 	if (data->caps) {
 		if (verbose) {
@@ -623,6 +635,9 @@ main(int argc, char **argv)
 				break;
 			case 8:
 				data.output = optarg;
+				break;
+			case 9:
+				data.seccomp = optarg;
 				break;
 			case 'n':
 				data.name = xfree(data.name);

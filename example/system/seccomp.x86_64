@@ -1,0 +1,194 @@
+POLICY sample {
+	ERRNO(1) {
+		// Deny loading potentially persistent bpf programs into kernel.
+		// Also gated by CAP_SYS_ADMIN.
+		bpf,
+
+		// Time/date is not namespaced.
+		// Also gated by CAP_SYS_TIME.
+		clock_adjtime,
+
+		// Time/date is not namespaced.
+		// Also gated by CAP_SYS_TIME.
+		clock_settime,
+
+		// Deny cloning new namespaces.
+		// Also gated by CAP_SYS_ADMIN for CLONE_* flags, except CLONE_USERNS.
+		clone,
+
+		// Deny manipulation and functions on kernel modules.
+		// Also gated by CAP_SYS_MODULE.
+		create_module,
+
+		// Deny manipulation and functions on kernel modules.
+		// Also gated by CAP_SYS_MODULE.
+		delete_module,
+
+		// Deny manipulation and functions on kernel modules.
+		// Also gated by CAP_SYS_MODULE.
+		finit_module,
+
+		// Deny retrieval of exported kernel and module symbols. Obsolete.
+		get_kernel_syms,
+
+		// Syscall that modifies kernel memory and NUMA settings.
+		// Already gated by CAP_SYS_NICE.
+		get_mempolicy,
+
+		// Deny manipulation and functions on kernel modules.
+		// Also gated by CAP_SYS_MODULE.
+		init_module,
+
+		// Prevent containers from modifying kernel I/O privilege levels.
+		// Also gated by CAP_SYS_RAWIO.
+		ioperm,
+
+		// Prevent containers from modifying kernel I/O privilege levels.
+		// Also gated by CAP_SYS_RAWIO.
+		iopl,
+
+		// Restrict process inspection capabilities.
+		// Also gated by CAP_PTRACE.
+		kcmp,
+
+		// Sister syscall of kexec_load that does the same thing, slightly different arguments.
+		// Also gated by CAP_SYS_BOOT.
+		kexec_file_load,
+
+		// Deny loading a new kernel for later execution.
+		// Also gated by CAP_SYS_BOOT.
+		kexec_load,
+
+		// Prevent containers from using the kernel keyring, which is not namespaced.
+		keyctl,
+
+		// Tracing/profiling syscall, which could leak a lot of information on the host.
+		// Also gated by CAP_SYS_ADMIN.
+		lookup_dcookie,
+
+		// Syscall that modifies kernel memory and NUMA settings.
+		// Also gated by CAP_SYS_NICE.
+		mbind,
+
+		// Deny mounting.
+		// Also gated by CAP_SYS_ADMIN.
+		mount,
+
+		// Syscall that modifies kernel memory and NUMA settings.
+		move_pages,
+
+		// Sister syscall to open_by_handle_at.
+		// Also gated by CAP_SYS_NICE.
+		name_to_handle_at,
+
+		// Deny interaction with the kernel nfs daemon.
+		nfsservctl,
+
+		// Cause of an old container breakout.
+		// Also gated by CAP_DAC_READ_SEARCH.
+		open_by_handle_at,
+
+		// Tracing/profiling syscall, which could leak a lot of information on the host.
+		perf_event_open,
+
+		// Prevent container from enabling BSD emulation. Not inherently dangerous,
+		// but poorly tested, potential for a lot of kernel vulns.
+		personality,
+
+		// Deny pivot_root, should be privileged operation.
+		pivot_root,
+
+		// Restrict process inspection capabilities.
+		// Also gated by CAP_PTRACE.
+		process_vm_readv,
+
+		// Restrict process inspection capabilities.
+		// Also gated by CAP_PTRACE.
+		process_vm_writev,
+
+		// Tracing/profiling syscall, which could leak a lot of information on the host.
+		// Also gated by CAP_PTRACE.
+		ptrace,
+
+		// Deny manipulation and functions on kernel modules.
+		query_module,
+
+		// Quota syscall which could let containers disable their own resource limits
+		// or process accounting.
+		// Also gated by CAP_SYS_ADMIN.
+		quotactl,
+
+		// Don’t let containers reboot the host.
+		// Also gated by CAP_SYS_BOOT.
+		reboot,
+
+		// Prevent containers from using the kernel keyring, which is not namespaced.
+		request_key,
+
+		// Syscall that modifies kernel memory and NUMA settings.
+		// Also gated by CAP_SYS_NICE.
+		set_mempolicy,
+
+		// Deny associating a thread with a namespace.
+		// Also gated by CAP_SYS_ADMIN.
+		setns,
+
+		// Time/date is not namespaced.
+		// Also gated by CAP_SYS_TIME.
+		//settimeofday,
+
+		// Used to send or receive packets and for other socket operations.
+		// All socket and socketcall calls are blocked except communication domains AF_UNIX,
+		// AF_INET, AF_INET6, AF_NETLINK, and AF_PACKET.
+		//socket,
+		//socketcall,
+
+		// Time/date is not namespaced.
+		// Also gated by CAP_SYS_TIME.
+		//stime,
+
+		// Deny start/stop swapping to file/device.
+		// Also gated by CAP_SYS_ADMIN.
+		swapon,
+
+		// Deny start/stop swapping to file/device.
+		// Also gated by CAP_SYS_ADMIN.
+		swapoff,
+
+		// Obsolete syscall.
+		sysfs,
+
+		// Obsolete, replaced by /proc/sys.
+		//_sysctl,
+
+		// Should be a privileged operation.
+		// Also gated by CAP_SYS_ADMIN.
+		umount,
+
+		// Should be a privileged operation.
+		// Also gated by CAP_SYS_ADMIN.
+		//umount2,
+
+		// Deny cloning new namespaces for processes.
+		// Also gated by CAP_SYS_ADMIN.
+		unshare,
+
+		// Older syscall related to shared libraries.
+		uselib,
+
+		// Userspace page fault handling, largely needed for process migration.
+		userfaultfd,
+
+		// Obsolete syscall.
+		ustat
+
+		// In kernel x86 real mode virtual machine.
+		// Also gated by CAP_SYS_ADMIN.
+		//vm86,
+
+		// In kernel x86 real mode virtual machine.
+		// Also gated by CAP_SYS_ADMIN.
+		//vm86old2
+	}
+}
+USE sample DEFAULT ALLOW

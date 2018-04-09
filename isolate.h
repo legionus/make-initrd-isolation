@@ -41,6 +41,11 @@ int parse_unshare_flags(int *flags, char *arg);
 // isolate-netns.c
 void setup_network(void);
 
+#include <stdio.h>
+
+// isolate-seccomp.c
+void load_seccomp(FILE *fd);
+
 #include <stdint.h>
 
 // isolate-userns.c

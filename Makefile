@@ -67,9 +67,12 @@ isolate_SRCS = \
 	isolate-mount.c \
 	isolate-netns.c \
 	isolate-ns.c \
+	isolate-seccomp.c \
 	isolate-userns.c
 
-isolate_LIBS = $(shell pkg-config --libs libcap)
+isolate_LIBS =
+isolate_LIBS += $(shell pkg-config --libs libcap)
+isolate_LIBS += -lkafel
 
 DEPS = $(call get_depends,$(bin_PROGS) $(sbin_PROGS),)
 OBJS = $(call get_objects,$(bin_PROGS) $(sbin_PROGS),)

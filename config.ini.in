@@ -9,6 +9,7 @@
 	fstab-file = @CONFDIR@/isolate/system/fstab
 	environ-file = @CONFDIR@/isolate/system/environ
 	devices-file = @CONFDIR@/isolate/system/devices
+	seccomp-file = @CONFDIR@/isolate/system/seccomp.$AUDIT_ARCH
 	#uid = 99
 	#gid = 99
 	cgroups = cpuset,memory

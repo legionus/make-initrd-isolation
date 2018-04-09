@@ -59,7 +59,10 @@ add_arg()
 {
 	local value=
 	get_var value "$2" "$3" "$4" "${5-}"
-	[ -z "$value" ] || args="$args $1='$value'"
+	if [ -n "$value" ]; then
+		eval "value=\"$value\""
+		args="$args $1='$value'"
+	fi
 }
 
 TEMP=`getopt -n $PROG -o 'h,V' -l 'help,version' -- "$@"` ||
@@ -118,10 +121,17 @@ if [ -s "$initenv" ]; then
 	read initargs < /.initrd/initargs
 fi
 
+AUDIT_ARCH=empty
+case "$(uname -m)" in
+	x86_64)
+		AUDIT_ARCH=x86_64
+		;;
+esac
+
 # Expand variables
 init=
 get_var init "isolate" "$name" "init"
-init="$(eval "printf '%s' \"${init:-/bin/sh}\"")"
+eval "init=\"${init:-/bin/sh}\""
 
 args=
 args="$args --name='$name'"
@@ -145,6 +155,7 @@ add_arg --output     "isolate" "$name" "output"
 add_arg --mount      "isolate" "$name" "fstab-file"
 add_arg --environ    "isolate" "$name" "environ-file"
 add_arg --devices    "isolate" "$name" "devices-file"
+add_arg --seccomp    "isolate" "$name" "seccomp-file"
 add_arg --unshare    "isolate" "$name" "unshare" "all=,"
 add_arg --cap-drop   "isolate" "$name" "cap-drop" "all=,"
 add_arg --cap-add    "isolate" "$name" "cap-add" "all=,"
