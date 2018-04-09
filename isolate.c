@@ -18,7 +18,7 @@
 
 #include "isolate.h"
 
-int verbose = 0;
+int verbose   = 0;
 char *pidfile = NULL;
 const char *program_subname;
 
@@ -107,6 +107,24 @@ usage(int code)
 	exit(code);
 }
 
+typedef enum {
+	CMD_NONE = 0,
+
+	CMD_DONE,
+	CMD_FAILED,
+
+	CMD_CLIENT_FORK,
+	CMD_CLIENT_PID,
+	CMD_CLIENT_READY,
+	CMD_CLIENT_EXEC,
+
+} cmd_t;
+
+struct cmd {
+	cmd_t type;
+	uint64_t datalen;
+};
+
 static inline void __attribute__((noreturn))
 print_version_and_exit(void)
 {
@@ -146,22 +164,90 @@ append_pid(const char *filename, pid_t pid)
 	close(fd);
 }
 
-static void
-write_pipe(const int fd, pid_t v, const char *stage)
+static int
+send_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
 {
-	//error(EXIT_SUCCESS, 0, "stage: %s", stage);
-	if (write(fd, &v, sizeof(v)) < 0)
-		error(EXIT_FAILURE, errno, "write_pipe(%s)", stage);
+	struct cmd hdr = { 0 };
+
+	hdr.type    = cmd;
+	hdr.datalen = len;
+
+	if (TEMP_FAILURE_RETRY(write(fd, &hdr, sizeof(hdr))) < 0) {
+		error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): write header", cmd);
+		return -1;
+	}
+
+	if (len > 0) {
+		if (TEMP_FAILURE_RETRY(write(fd, data, len)) < 0) {
+			error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): write data", cmd);
+			return -1;
+		}
+	}
+
+	if (TEMP_FAILURE_RETRY(read(fd, &hdr, sizeof(hdr))) < 0) {
+		error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): read header", cmd);
+		return -1;
+	}
+
+	if (hdr.type != CMD_DONE) {
+		error(EXIT_SUCCESS, 0, "send_cmd(cmd=%d): unexpected return code: %d", cmd, hdr.type);
+		return -1;
+	}
+
+	return 0;
 }
 
-static pid_t
-read_pipe(const int fd, const char *stage)
+static int
+recv_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
 {
-	pid_t x = 0;
-	//error(EXIT_SUCCESS, 0, "stage: %s", stage);
-	if (read(fd, &x, sizeof(x)) < 0)
-		error(EXIT_FAILURE, errno, "read_pipe(%s)", stage);
-	return x;
+	struct cmd hdr = { 0 };
+
+	if (TEMP_FAILURE_RETRY(read(fd, &hdr, sizeof(hdr))) < 0) {
+		error(EXIT_SUCCESS, errno, "recv_cmd(cmd=%d): read header", cmd);
+		return -1;
+	}
+
+	if (hdr.type == CMD_FAILED) {
+		error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): the other side failed", cmd);
+		return -1;
+	}
+
+	if (hdr.type != cmd) {
+		error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): got unexpected command %d", cmd, hdr.type);
+		return -1;
+	}
+
+	if (hdr.datalen > 0) {
+		void *v = NULL;
+
+		if (len > 0 && hdr.datalen != len) {
+			error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): unexpected data len", cmd);
+			return -1;
+		}
+
+		v = xcalloc(1, hdr.datalen);
+
+		if (TEMP_FAILURE_RETRY(read(fd, v, hdr.datalen)) < 0) {
+			error(EXIT_SUCCESS, errno, "recv_cmd(cmd=%d): read data", cmd);
+			xfree(v);
+			return -1;
+		}
+
+		if (data && len > 0)
+			memcpy(data, v, hdr.datalen);
+
+		xfree(v);
+	}
+
+	hdr.type    = CMD_DONE;
+	hdr.datalen = 0;
+
+	if (TEMP_FAILURE_RETRY(write(fd, &hdr, sizeof(hdr))) < 0) {
+		error(EXIT_SUCCESS, errno, "recv_cmd(cmd=%d): write response", cmd);
+		return -1;
+	}
+
+	return 0;
 }
 
 static void
@@ -228,13 +314,11 @@ container_parent(struct container *data, int child)
 	fd_ep = epollin_init();
 	epollin_add(fd_ep, fd_signal);
 
-	write_pipe(child, 1, "ready for clients");
-
 	init_pid = -1;
-	if (read(child, &init_pid, sizeof(init_pid)) != sizeof(init_pid))
-		error(EXIT_FAILURE, errno, "read init pid");
 
-	if (!read_pipe(child, "waiting for client")) {
+	if (send_cmd(child, CMD_CLIENT_FORK, NULL, 0) < 0 ||
+	    recv_cmd(child, CMD_CLIENT_PID, &init_pid, sizeof(init_pid)) < 0 ||
+	    recv_cmd(child, CMD_CLIENT_READY, NULL, 0)) {
 		data->cgroups = NULL;
 		rc            = EXIT_FAILURE;
 		goto done;
@@ -286,7 +370,12 @@ container_parent(struct container *data, int child)
 
 			} else if (prehook_pid == -2) {
 				prehook_pid = -3;
-				write_pipe(child, 1, "allow client to start");
+
+				if (send_cmd(child, CMD_CLIENT_EXEC, NULL, 0) < 0) {
+					rc = EXIT_FAILURE;
+					goto done;
+				}
+
 				continue;
 			}
 
@@ -399,19 +488,21 @@ conatainer_child(struct container *data, int parent)
 		error(EXIT_FAILURE, errno, "sethostname");
 
 	if (data->devfile && open_map(data->devfile, &devs, 0) < 0) {
-		write_pipe(parent, 0, "NOT ready to run");
+		send_cmd(parent, CMD_FAILED, NULL, 0);
 		return EXIT_FAILURE;
 	}
 
 	if (data->envfile && open_map(data->envfile, &envs, 0) < 0) {
-		write_pipe(parent, 0, "NOT ready to run");
+		send_cmd(parent, CMD_FAILED, NULL, 0);
 		return EXIT_FAILURE;
 	}
 
-	write_pipe(parent, 1, "ready to run");
-
-	if (!read_pipe(parent, "waiting for permission to start"))
+	if (send_cmd(parent, CMD_CLIENT_READY, NULL, 0) < 0 ||
+	    recv_cmd(parent, CMD_CLIENT_EXEC, NULL, 0) < 0)
 		return EXIT_FAILURE;
+
+	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
+		error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
 
 	if (chroot(data->root) < 0)
 		error(EXIT_FAILURE, errno, "chroot");
@@ -466,7 +557,7 @@ fork_child(struct container *data, int parent)
 	int pipe[2];
 	pid_t pid;
 
-	if (!read_pipe(parent, "waiting for permission to fork"))
+	if (recv_cmd(parent, CMD_CLIENT_FORK, NULL, 0) < 0)
 		return EXIT_FAILURE;
 
 	if (pipe2(pipe, O_DIRECT) < 0)
@@ -476,8 +567,8 @@ fork_child(struct container *data, int parent)
 		error(EXIT_FAILURE, errno, "fork");
 
 	if (pid > 0) {
-		if (write(parent, &pid, sizeof(pid)) != sizeof(pid))
-			error(EXIT_FAILURE, errno, "transfer pid");
+		if (send_cmd(parent, CMD_CLIENT_PID, &pid, sizeof(pid)) < 0)
+			error(EXIT_FAILURE, errno, "unable to transfer pid");
 
 		if (write(pipe[1], &c, sizeof(c)) < 0)
 			error(EXIT_FAILURE, errno, "write");
