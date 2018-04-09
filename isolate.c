@@ -109,15 +109,11 @@ usage(int code)
 
 typedef enum {
 	CMD_NONE = 0,
-
-	CMD_DONE,
-	CMD_FAILED,
-
 	CMD_CLIENT_FORK,
 	CMD_CLIENT_PID,
+	CMD_CLIENT_FORKED,
 	CMD_CLIENT_READY,
-	CMD_CLIENT_EXEC,
-
+	CMD_CLIENT_EXEC
 } cmd_t;
 
 struct cmd {
@@ -177,20 +173,8 @@ send_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
 		return -1;
 	}
 
-	if (len > 0) {
-		if (TEMP_FAILURE_RETRY(write(fd, data, len)) < 0) {
-			error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): write data", cmd);
-			return -1;
-		}
-	}
-
-	if (TEMP_FAILURE_RETRY(read(fd, &hdr, sizeof(hdr))) < 0) {
-		error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): read header", cmd);
-		return -1;
-	}
-
-	if (hdr.type != CMD_DONE) {
-		error(EXIT_SUCCESS, 0, "send_cmd(cmd=%d): unexpected return code: %d", cmd, hdr.type);
+	if (len > 0 && TEMP_FAILURE_RETRY(write(fd, data, len)) < 0) {
+		error(EXIT_SUCCESS, errno, "send_cmd(cmd=%d): write data", cmd);
 		return -1;
 	}
 
@@ -198,7 +182,7 @@ send_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
 }
 
 static int
-recv_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
+recv_cmd(int fd, cmd_t cmd)
 {
 	struct cmd hdr = { 0 };
 
@@ -207,43 +191,8 @@ recv_cmd(int fd, cmd_t cmd, void *data, uint64_t len)
 		return -1;
 	}
 
-	if (hdr.type == CMD_FAILED) {
-		error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): the other side failed", cmd);
-		return -1;
-	}
-
 	if (hdr.type != cmd) {
 		error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): got unexpected command %d", cmd, hdr.type);
-		return -1;
-	}
-
-	if (hdr.datalen > 0) {
-		void *v = NULL;
-
-		if (len > 0 && hdr.datalen != len) {
-			error(EXIT_SUCCESS, 0, "recv_cmd(cmd=%d): unexpected data len", cmd);
-			return -1;
-		}
-
-		v = xcalloc(1, hdr.datalen);
-
-		if (TEMP_FAILURE_RETRY(read(fd, v, hdr.datalen)) < 0) {
-			error(EXIT_SUCCESS, errno, "recv_cmd(cmd=%d): read data", cmd);
-			xfree(v);
-			return -1;
-		}
-
-		if (data && len > 0)
-			memcpy(data, v, hdr.datalen);
-
-		xfree(v);
-	}
-
-	hdr.type    = CMD_DONE;
-	hdr.datalen = 0;
-
-	if (TEMP_FAILURE_RETRY(write(fd, &hdr, sizeof(hdr))) < 0) {
-		error(EXIT_SUCCESS, errno, "recv_cmd(cmd=%d): write response", cmd);
 		return -1;
 	}
 
@@ -289,7 +238,7 @@ kill_container(struct container *data)
 }
 
 static int
-container_parent(struct container *data, int child)
+container_parent(struct container *data, int fd_child, pid_t temp_pid)
 {
 	int i, rc;
 	pid_t init_pid, prehook_pid, hook_pid;
@@ -300,7 +249,7 @@ container_parent(struct container *data, int child)
 	program_subname      = "parent";
 	error_print_progname = print_program_subname;
 
-	prehook_pid = hook_pid = 0;
+	init_pid = prehook_pid = hook_pid = 0;
 
 	sigfillset(&mask);
 	sigprocmask(SIG_SETMASK, &mask, NULL);
@@ -313,41 +262,13 @@ container_parent(struct container *data, int child)
 
 	fd_ep = epollin_init();
 	epollin_add(fd_ep, fd_signal);
+	epollin_add(fd_ep, fd_child);
 
-	init_pid = -1;
-
-	if (send_cmd(child, CMD_CLIENT_FORK, NULL, 0) < 0 ||
-	    recv_cmd(child, CMD_CLIENT_PID, &init_pid, sizeof(init_pid)) < 0 ||
-	    recv_cmd(child, CMD_CLIENT_READY, NULL, 0)) {
+	if (send_cmd(fd_child, CMD_CLIENT_FORK, NULL, 0) < 0) {
 		data->cgroups = NULL;
 		rc            = EXIT_FAILURE;
 		goto done;
 	}
-
-	// enforce freezer controller
-	cgroup_controller(data->cgroups, "freezer");
-
-	// prepare cgroups
-	cgroup_create(data->cgroups);
-	cgroup_add(data->cgroups, init_pid);
-
-	if (data->remap_uid || data->remap_gid) {
-		uid_t real_euid = geteuid();
-		gid_t real_egid = getegid();
-
-		/* since Linux 3.19 unprivileged writing of /proc/self/gid_map
-		 * has s been disabled unless /proc/self/setgroups is written
-		 * first to permanently disable the ability to call setgroups
-		 * in that user namespace.
-		 */
-		setgroups_control(init_pid, "deny");
-
-		map_id("uid_map", init_pid, data->remap_uid, real_euid);
-		map_id("gid_map", init_pid, data->remap_gid, real_egid);
-	}
-
-	setenvf("CONTAINER_NAME", "%s", data->name);
-	setenvf("CONTAINER_PID", "%d", init_pid);
 
 	rc = EXIT_SUCCESS;
 	while (1) {
@@ -359,27 +280,21 @@ container_parent(struct container *data, int child)
 		if ((fdcount = epoll_wait(fd_ep, ev, ARRAY_SIZE(ev), ep_timeout)) < 0) {
 			if (errno == EINTR)
 				continue;
-
 			error(EXIT_FAILURE, errno, "epoll_wait");
 		}
 
 		if (!fdcount) {
-			if (!prehook_pid) {
-				prehook_pid = run_hook("PRERUN");
-				continue;
-
-			} else if (prehook_pid == -2) {
+			if (prehook_pid == -2) {
 				prehook_pid = -3;
 
-				if (send_cmd(child, CMD_CLIENT_EXEC, NULL, 0) < 0) {
+				if (send_cmd(fd_child, CMD_CLIENT_EXEC, NULL, 0) < 0) {
 					rc = EXIT_FAILURE;
 					goto done;
 				}
-
 				continue;
 			}
 
-			if (!init_pid && hook_pid <= 0)
+			if (!init_pid && !temp_pid && hook_pid <= 0)
 				goto done;
 
 			ep_timeout = 1000;
@@ -410,6 +325,13 @@ container_parent(struct container *data, int child)
 								init_pid = 0;
 								hook_pid = run_hook("POSTRUN");
 								rc       = WEXITSTATUS(status);
+							} else if (pid == temp_pid) {
+								temp_pid = 0;
+
+								if (send_cmd(fd_child, CMD_CLIENT_FORKED, NULL, 0) < 0) {
+									rc = EXIT_FAILURE;
+									goto done;
+								}
 							} else if (pid == prehook_pid) {
 								prehook_pid = -2;
 							} else if (pid == hook_pid) {
@@ -426,16 +348,70 @@ container_parent(struct container *data, int child)
 						case SIGHUP:
 							break;
 					}
+				} else if (ev[i].data.fd == fd_child) {
+					struct cmd hdr = { 0 };
+
+					if (TEMP_FAILURE_RETRY(read(fd_child, &hdr, sizeof(hdr))) < 0) {
+						error(EXIT_SUCCESS, errno, "read header");
+						rc = EXIT_FAILURE;
+						goto done;
+					}
+
+					switch (hdr.type) {
+						case CMD_CLIENT_PID:
+							if (hdr.datalen != sizeof(init_pid)) {
+								error(EXIT_SUCCESS, errno, "unexpected data length");
+								rc = EXIT_FAILURE;
+								goto done;
+							}
+							if (TEMP_FAILURE_RETRY(read(fd_child, &init_pid, hdr.datalen)) < 0) {
+								error(EXIT_SUCCESS, errno, "unable to get client pid");
+								rc = EXIT_FAILURE;
+								goto done;
+							}
+
+							setenvf("CONTAINER_NAME", "%s", data->name);
+							setenvf("CONTAINER_PID", "%d", init_pid);
+
+							break;
+						case CMD_CLIENT_READY:
+							// enforce freezer controller
+							cgroup_controller(data->cgroups, "freezer");
+
+							// prepare cgroups
+							cgroup_create(data->cgroups);
+							cgroup_add(data->cgroups, init_pid);
+
+							if (data->remap_uid || data->remap_gid) {
+								uid_t real_euid = geteuid();
+								gid_t real_egid = getegid();
+
+								/* since Linux 3.19 unprivileged writing of /proc/self/gid_map
+								 * has s been disabled unless /proc/self/setgroups is written
+								 * first to permanently disable the ability to call setgroups
+								 * in that user namespace.
+								 */
+								setgroups_control(init_pid, "deny");
+
+								map_id("uid_map", init_pid, data->remap_uid, real_euid);
+								map_id("gid_map", init_pid, data->remap_gid, real_egid);
+							}
+
+							prehook_pid = run_hook("PRERUN");
+							break;
+						default:
+							rc = EXIT_FAILURE;
+							goto done;
+					}
 				}
 			}
 	}
 done:
 	if (fd_ep >= 0) {
 		epollin_remove(fd_ep, fd_signal);
+		epollin_remove(fd_ep, fd_child);
 		close(fd_ep);
 	}
-
-	close(child);
 
 	if (pidfile)
 		unlink(pidfile);
@@ -454,6 +430,12 @@ conatainer_child(struct container *data, int parent)
 
 	program_subname      = "child";
 	error_print_progname = print_program_subname;
+
+	if (recv_cmd(parent, CMD_CLIENT_FORKED) < 0)
+		return EXIT_FAILURE;
+
+	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
+		error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
 
 	if (data->input)
 		reopen_fd(data->input, STDIN_FILENO);
@@ -487,22 +469,15 @@ conatainer_child(struct container *data, int parent)
 	if (data->hostname && sethostname(data->hostname, strlen(data->hostname)) < 0)
 		error(EXIT_FAILURE, errno, "sethostname");
 
-	if (data->devfile && open_map(data->devfile, &devs, 0) < 0) {
-		send_cmd(parent, CMD_FAILED, NULL, 0);
+	if (data->devfile && open_map(data->devfile, &devs, 0) < 0)
 		return EXIT_FAILURE;
-	}
 
-	if (data->envfile && open_map(data->envfile, &envs, 0) < 0) {
-		send_cmd(parent, CMD_FAILED, NULL, 0);
+	if (data->envfile && open_map(data->envfile, &envs, 0) < 0)
 		return EXIT_FAILURE;
-	}
 
 	if (send_cmd(parent, CMD_CLIENT_READY, NULL, 0) < 0 ||
-	    recv_cmd(parent, CMD_CLIENT_EXEC, NULL, 0) < 0)
+	    recv_cmd(parent, CMD_CLIENT_EXEC) < 0)
 		return EXIT_FAILURE;
-
-	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
-		error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
 
 	if (chroot(data->root) < 0)
 		error(EXIT_FAILURE, errno, "chroot");
@@ -557,16 +532,23 @@ fork_child(struct container *data, int parent)
 	int pipe[2];
 	pid_t pid;
 
-	if (recv_cmd(parent, CMD_CLIENT_FORK, NULL, 0) < 0)
+	program_subname      = "temporary";
+	error_print_progname = print_program_subname;
+
+	if (recv_cmd(parent, CMD_CLIENT_FORK) < 0)
 		return EXIT_FAILURE;
 
 	if (pipe2(pipe, O_DIRECT) < 0)
 		error(EXIT_FAILURE, errno, "pipe2");
 
+	// fork to switch to new pid namespace
 	if ((pid = fork()) < 0)
 		error(EXIT_FAILURE, errno, "fork");
 
 	if (pid > 0) {
+		if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
+			error(EXIT_FAILURE, errno, "prctl(PR_SET_PDEATHSIG)");
+
 		if (send_cmd(parent, CMD_CLIENT_PID, &pid, sizeof(pid)) < 0)
 			error(EXIT_FAILURE, errno, "unable to transfer pid");
 
@@ -731,7 +713,7 @@ main(int argc, char **argv)
 
 		cg.name = data.name;
 
-		return container_parent(&data, sv[0]);
+		return container_parent(&data, sv[0], pid);
 	}
 
 	if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
