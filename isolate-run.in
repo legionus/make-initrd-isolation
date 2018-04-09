@@ -47,7 +47,6 @@ get_bool()
 {
 	local rc= value=
 	get_var value "$2" "$3" "$4"
-	echo value=$value
 	if [ -n "$value" ]; then
 		rc=no
 		! shell_var_is_yes "$value" || rc=yes
