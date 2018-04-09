@@ -12,6 +12,7 @@ Requires: libshell >= 0.4.4
 
 BuildRequires: help2man
 BuildRequires: libcap-devel
+BuildRequires: libkafel-devel
 
 Source0: %name-%version.tar
 
