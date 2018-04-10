@@ -51,7 +51,7 @@ DEP      = $(call quiet_cmd,DEP,$<,$(CC))
 CFLAGS = $(warning_CFLAGS) -I. -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
 
 bin_PROGS = shell-git-config-env
-sbin_PROGS = isolate isolatectl isolate-run
+sbin_PROGS = isolate isolatectl
 config_ini = config.ini
 
 isolate_SRCS = \
