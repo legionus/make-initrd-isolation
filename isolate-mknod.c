@@ -87,7 +87,7 @@ make_devices(const char *rootdir, struct mapfile *devs)
 			error(EXIT_FAILURE, errno, "lchown: %s", devpath);
 
 		devpath = xfree(devpath);
-		path = xfree(path);
+		path    = xfree(path);
 		i++;
 	}
 

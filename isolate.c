@@ -428,7 +428,7 @@ done:
 static int
 conatainer_child(struct container *data, int parent)
 {
-	FILE *seccomp_fd = NULL;
+	FILE *seccomp_fd    = NULL;
 	struct mapfile envs = {};
 
 	program_subname      = "child";

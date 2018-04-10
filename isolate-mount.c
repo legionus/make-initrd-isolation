@@ -1,3 +1,5 @@
+#include <sys/vfs.h>
+#include <sys/statvfs.h>
 #include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -88,6 +90,21 @@ static struct {
 };
 
 #undef E
+
+static struct {
+	const unsigned long mount_flag;
+	const long int vfs_flag;
+} const mountPairs[] = {
+	{ MS_MANDLOCK, ST_MANDLOCK },
+	{ MS_NOATIME, ST_NOATIME },
+	{ MS_NODEV, ST_NODEV },
+	{ MS_NODIRATIME, ST_NODIRATIME },
+	{ MS_NOEXEC, ST_NOEXEC },
+	{ MS_NOSUID, ST_NOSUID },
+	{ MS_RDONLY, ST_RDONLY },
+	{ MS_RELATIME, ST_RELATIME },
+	{ MS_SYNCHRONOUS, ST_SYNCHRONOUS },
+};
 
 struct mountflags {
 	unsigned long vfs_opts;
@@ -271,6 +288,28 @@ _bindents(const char *source, const char *target)
 	return rc;
 }
 
+static void
+remount_ro(const char *mpoint)
+{
+	struct statfs st;
+
+	if (TEMP_FAILURE_RETRY(statfs(mpoint, &st)) < 0)
+		error(EXIT_FAILURE, errno, "statfs: %s", mpoint);
+
+	if (st.f_flags & ST_RDONLY)
+		return;
+
+	unsigned long new_flags = MS_REMOUNT | MS_RDONLY | MS_BIND;
+
+	for (size_t i = 0; i < ARRAY_SIZE(mountPairs); i++) {
+		if (st.f_flags & mountPairs[i].vfs_flag)
+			new_flags |= mountPairs[i].mount_flag;
+	}
+
+	if (mount(mpoint, mpoint, NULL, new_flags, 0) < 0)
+		error(EXIT_FAILURE, errno, "mount(remount,ro): %s", mpoint);
+}
+
 void
 do_mount(const char *newroot, struct mntent **mounts)
 {
@@ -330,6 +369,9 @@ do_mount(const char *newroot, struct mntent **mounts)
 
 		if (mount(mounts[i]->mnt_fsname, mpoint, mounts[i]->mnt_type, mflags.vfs_opts, mflags.data) < 0)
 			error(EXIT_FAILURE, errno, "mount: %s", mpoint);
+
+		if (mflags.vfs_opts & MS_RDONLY)
+			remount_ro(mpoint);
 	next:
 
 		xfree(mflags.data);
