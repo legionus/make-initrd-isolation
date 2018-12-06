@@ -5,16 +5,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
-#include <error.h>
+#include <errno.h>
 
 #include "isolate.h"
+
+extern int verbose;
 
 static struct {
 	const char *name;
 	const char *clone_name;
 	const int flag;
 } const clone_flags[] = {
-	{ "user", "CLONE_NEWUSER", CLONE_NEWUSER },
 	{ "mount", "CLONE_NEWNS", CLONE_NEWNS },
 	{ "uts", "CLONE_NEWUTS", CLONE_NEWUTS },
 	{ "ipc", "CLONE_NEWIPC", CLONE_NEWIPC },
@@ -22,17 +23,18 @@ static struct {
 	{ "pid", "CLONE_NEWPID", CLONE_NEWPID },
 	{ "cgroup", "CLONE_NEWCGROUP", CLONE_NEWCGROUP },
 	{ "sysvsem", "CLONE_SYSVSEM", CLONE_SYSVSEM },
+	{ "filesystem", "CLONE_FS", CLONE_FS },
 };
 
 static int
-unshare_flag(int *flags, const char *name)
+add_flag(int *flags, const char *name)
 {
 	size_t i, len;
 
 	len = strlen(name);
 
 	if (!len) {
-		error(EXIT_SUCCESS, 0, "empty namespace");
+		info("empty namespace");
 		return -1;
 	}
 
@@ -49,7 +51,7 @@ unshare_flag(int *flags, const char *name)
 		}
 	}
 
-	error(EXIT_SUCCESS, 0, "unknown unshare flag: %s", name);
+	info("unknown unshare flag: %s", name);
 	return 0;
 }
 
@@ -65,7 +67,7 @@ parse_unshare_flags(int *flags, char *arg)
 		if (!token)
 			break;
 
-		if (unshare_flag(flags, token) < 0)
+		if (add_flag(flags, token) < 0)
 			return -1;
 	}
 
@@ -73,11 +75,17 @@ parse_unshare_flags(int *flags, char *arg)
 }
 
 void
-unshare_print_flags(const int flags)
+unshare_flags(const int flags)
 {
 	size_t i;
 
-	for (i = 0; i < ARRAY_SIZE(clone_flags); i++)
-		if (flags & clone_flags[i].flag)
-			dprintf(STDOUT_FILENO, "namespace %s (%s) unshared\n", clone_flags[i].name, clone_flags[i].clone_name);
+	for (i = 0; i < ARRAY_SIZE(clone_flags); i++) {
+		if (flags & clone_flags[i].flag) {
+			if (verbose > 2)
+				info("unshare namespace %s (%s)", clone_flags[i].name, clone_flags[i].clone_name);
+
+			if (unshare(clone_flags[i].flag) < 0)
+				myerror(EXIT_FAILURE, errno, "unshare(%s)", clone_flags[i].clone_name);
+		}
+	}
 }

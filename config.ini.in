@@ -9,9 +9,9 @@
 	fstab-file = @CONFDIR@/isolate/system/fstab
 	environ-file = @CONFDIR@/isolate/system/environ
 	devices-file = @CONFDIR@/isolate/system/devices
-	seccomp-file = @CONFDIR@/isolate/system/seccomp.$AUDIT_ARCH
+	seccomp-file = @CONFDIR@/isolate/system/seccomp.$ARCH
 	#uid = 99
 	#gid = 99
 	cgroups = cpuset,memory
 	unshare = uts,ipc,sysvsem,pid,mounts
-	cap-drop = cap_sys_module,cap_sys_boot
+	caps = -cap_sys_module,cap_sys_boot,cap_mknod

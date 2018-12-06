@@ -10,15 +10,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <error.h>
 
 #include "isolate.h"
+
+extern int verbose;
 
 void
 load_environ(struct mapfile *envs)
 {
 	size_t i;
 	char *nline, *a, *s, *eq;
+
+	if (verbose)
+		info("loading environment: %s", envs->filename);
 
 	i = 1;
 	a = envs->map;
@@ -50,27 +54,4 @@ load_environ(struct mapfile *envs)
 	}
 
 	close_map(envs);
-}
-
-int
-    __attribute__((format(printf, 2, 3)))
-    setenvf(const char *name, const char *fmt, ...)
-{
-	int rc;
-	char *value = NULL;
-	va_list ap;
-
-	va_start(ap, fmt);
-
-	if (vasprintf(&value, fmt, ap) < 0) {
-		error(EXIT_SUCCESS, errno, "vasprintf");
-		return -1;
-	}
-
-	va_end(ap);
-
-	rc = setenv(name, value, 1);
-	xfree(value);
-
-	return rc;
 }

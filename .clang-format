@@ -6,7 +6,7 @@ BreakBeforeBraces: Linux
 AllowShortIfStatementsOnASingleLine: false
 SpaceAfterCStyleCast: true
 IndentCaseLabels: true
-AlignConsecutiveAssignments: true
+AlignConsecutiveAssignments: false
 Cpp11BracedListStyle: false
 SortIncludes: false
 AlwaysBreakAfterDefinitionReturnType: TopLevel

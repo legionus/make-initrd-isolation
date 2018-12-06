@@ -50,19 +50,24 @@ DEP      = $(call quiet_cmd,DEP,$<,$(CC))
 
 CFLAGS = $(warning_CFLAGS) -I. -DVERSION=\"$(VERSION)\" -D_GNU_SOURCE=1
 
-bin_PROGS = shell-git-config-env
-sbin_PROGS = isolate isolatectl
+bin_PROGS =
+sbin_PROGS = isolate
 config_ini = config.ini
 
 isolate_SRCS = \
 	isolate.c \
+	isolate-arguments.c \
 	isolate-caps.c \
 	isolate-cgroups.c \
+	isolate-cmd-common.c \
+	isolate-cmd-start.c \
+	isolate-cmd-status.c \
+	isolate-cmd-stop.c \
 	isolate-common.c \
+	isolate-config.c \
 	isolate-env.c \
 	isolate-epoll.c \
 	isolate-fds.c \
-	isolate-hooks.c \
 	isolate-mknod.c \
 	isolate-mount.c \
 	isolate-netns.c \
@@ -73,23 +78,12 @@ isolate_SRCS = \
 isolate_LIBS =
 isolate_LIBS += $(shell pkg-config --libs libcap)
 isolate_LIBS += -lkafel
+isolate_LIBS += -liniparser
 
 DEPS = $(call get_depends,$(bin_PROGS) $(sbin_PROGS),)
 OBJS = $(call get_objects,$(bin_PROGS) $(sbin_PROGS),)
 
 all: $(config_ini) $(bin_PROGS) $(sbin_PROGS)
-
-%: %.in
-	$(SED) \
-		-e 's,@VERSION@,$(VERSION),g' \
-		-e 's,@CONFDIR@,$(sysconfdir),g' \
-		-e 's,@STATEDIR@,$(statedir),g' \
-		-e 's,@BINDIR@,$(bindir),g' \
-		-e 's,@SBINDIR@,$(sbindir),g' \
-		-e 's,@TMPDIR@,$(tmpdir),g' \
-		<$< >$@
-	$(TOUCH_R) $< $@
-	$(CHMOD) --reference=$< $@
 
 %.o: %.c
 	$(COMPILE) $(OUTPUT_OPTION) $<
@@ -101,8 +95,7 @@ format:
 	clang-format -style=file -i isolate*.c isolate*.h
 
 install: $(config_ini) $(sbin_PROGS)
-	$(MKDIR_P) -- $(DESTDIR)$(bindir) $(DESTDIR)$(sbindir)
-	$(INSTALL) -p -m644 $(bin_PROGS) $(DESTDIR)$(bindir)/
+	$(MKDIR_P) -- $(DESTDIR)$(sbindir)
 	$(INSTALL) -p -m755 $(sbin_PROGS) $(DESTDIR)$(sbindir)/
 	$(MKDIR_P) -m700 -- $(DESTDIR)$(sysconfdir)/isolate
 	$(INSTALL) -p -m644 $(config_ini) $(DESTDIR)$(sysconfdir)/isolate/
@@ -111,6 +104,18 @@ install: $(config_ini) $(sbin_PROGS)
 	$(TAR) -xf example/system.rootfs.tar.zst -C $(DESTDIR)$(statedir)/isolate
 	$(MKDIR_P) -- $(DESTDIR)$(datadir)/make-initrd
 	$(CP) -r features $(DESTDIR)$(datadir)/make-initrd/
+
+%: %.in
+	$(SED) \
+	    -e 's,@VERSION@,$(VERSION),g' \
+	    -e 's,@CONFDIR@,$(sysconfdir),g' \
+	    -e 's,@STATEDIR@,$(statedir),g' \
+	    -e 's,@BINDIR@,$(bindir),g' \
+	    -e 's,@SBINDIR@,$(sbindir),g' \
+	    -e 's,@TMPDIR@,$(tmpdir),g' \
+	    <$< >$@
+	$(TOUCH_R) $< $@
+	$(CHMOD) --reference=$< $@
 
 clean:
 	$(RM) -rf -- $(config_ini) $(bin_PROGS) $(sbin_PROGS) $(DEPS) $(OBJS)

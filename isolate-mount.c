@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <error.h>
 #include <mntent.h>
 
 #include <dirent.h>
@@ -129,11 +128,11 @@ str2umask(const char *name, const char *value)
 	unsigned long n;
 
 	if (!*value)
-		error(EXIT_FAILURE, 0, "empty value for \"%s\" option", name);
+		myerror(EXIT_FAILURE, 0, "empty value for \"%s\" option", name);
 
 	n = strtoul(value, &p, 8);
 	if (!p || *p || n > 0777)
-		error(EXIT_FAILURE, 0, "invalid value for \"%s\" option: %s", name, value);
+		myerror(EXIT_FAILURE, 0, "invalid value for \"%s\" option: %s", name, value);
 
 	return (mode_t) n;
 }
@@ -145,7 +144,7 @@ parse_mountopts(const char *opts, struct mountflags *flags)
 	int i;
 
 	flags->vfs_opts = 0;
-	flags->data     = NULL;
+	flags->data = NULL;
 
 	s = subopts = xstrdup(opts);
 
@@ -165,7 +164,7 @@ parse_mountopts(const char *opts, struct mountflags *flags)
 
 			if (flags->data) {
 				size_t datalen = strlen(flags->data) + strlen(value) + 1;
-				flags->data    = xrealloc(flags->data, datalen, 1);
+				flags->data = xrealloc(flags->data, datalen, 1);
 				snprintf(flags->data, datalen, "%s,%s", flags->data, value);
 			} else {
 				flags->data = xstrdup(value);
@@ -191,29 +190,29 @@ parse_fstab(const char *fstabname)
 	char *buf;
 
 	struct mntent **result = NULL;
-	size_t n_ents          = 0;
+	size_t n_ents = 0;
 
 	fstab = setmntent(fstabname, "r");
 	if (!fstab)
-		error(EXIT_FAILURE, errno, "setmntent: %s", fstabname);
+		myerror(EXIT_FAILURE, errno, "setmntent: %s", fstabname);
 
 	buf = xmalloc(MNTBUFSIZ);
 
 	while (getmntent_r(fstab, &mt, buf, MNTBUFSIZ)) {
 		result = xrealloc(result, (n_ents + 1), sizeof(void *));
 
-		result[n_ents]             = xcalloc(1, sizeof(struct mntent));
+		result[n_ents] = xcalloc(1, sizeof(struct mntent));
 		result[n_ents]->mnt_fsname = xstrdup(mt.mnt_fsname);
-		result[n_ents]->mnt_dir    = xstrdup(mt.mnt_dir);
-		result[n_ents]->mnt_type   = xstrdup(mt.mnt_type);
-		result[n_ents]->mnt_opts   = xstrdup(mt.mnt_opts);
-		result[n_ents]->mnt_freq   = mt.mnt_freq;
+		result[n_ents]->mnt_dir = xstrdup(mt.mnt_dir);
+		result[n_ents]->mnt_type = xstrdup(mt.mnt_type);
+		result[n_ents]->mnt_opts = xstrdup(mt.mnt_opts);
+		result[n_ents]->mnt_freq = mt.mnt_freq;
 		result[n_ents]->mnt_passno = mt.mnt_passno;
 
 		n_ents++;
 	}
 
-	result         = xrealloc(result, (n_ents + 1), sizeof(void *));
+	result = xrealloc(result, (n_ents + 1), sizeof(void *));
 	result[n_ents] = NULL;
 
 	endmntent(fstab);
@@ -230,7 +229,7 @@ _bindents(const char *source, const char *target)
 	char *spath, *tpath;
 
 	if (!(d = opendir(source))) {
-		error(EXIT_SUCCESS, errno, "opendir: %s", source);
+		errmsg("opendir: %s", source);
 		return rc;
 	}
 
@@ -241,7 +240,7 @@ _bindents(const char *source, const char *target)
 
 		if (!(ent = readdir(d))) {
 			if (errno) {
-				error(EXIT_SUCCESS, errno, "readdir: %s", source);
+				errmsg("readdir: %s", source);
 				break;
 			}
 			rc = 0;
@@ -256,20 +255,20 @@ _bindents(const char *source, const char *target)
 
 		if (ent->d_type == DT_DIR) {
 			if (mkdir(tpath, 0755) < 0) {
-				error(EXIT_SUCCESS, errno, "mkdir: %s", tpath);
+				errmsg("mkdir: %s", tpath);
 				break;
 			}
 		} else {
 			int fd = creat(tpath, 0644);
 			if (fd < 0) {
-				error(EXIT_SUCCESS, errno, "open: %s", tpath);
+				errmsg("open: %s", tpath);
 				break;
 			}
 			close(fd);
 		}
 
 		if (mount(spath, tpath, "none", MS_BIND | MS_REC, NULL) < 0) {
-			error(EXIT_SUCCESS, errno, "mount: %s", tpath);
+			errmsg("mount: %s", tpath);
 			break;
 		}
 
@@ -281,7 +280,7 @@ _bindents(const char *source, const char *target)
 	xfree(tpath);
 
 	if (closedir(d) < 0) {
-		error(EXIT_SUCCESS, errno, "closedir: %s", source);
+		errmsg("closedir: %s", source);
 		return -1;
 	}
 
@@ -294,7 +293,7 @@ remount_ro(const char *mpoint)
 	struct statfs st;
 
 	if (TEMP_FAILURE_RETRY(statfs(mpoint, &st)) < 0)
-		error(EXIT_FAILURE, errno, "statfs: %s", mpoint);
+		myerror(EXIT_FAILURE, errno, "statfs: %s", mpoint);
 
 	if (st.f_flags & ST_RDONLY)
 		return;
@@ -306,14 +305,17 @@ remount_ro(const char *mpoint)
 			new_flags |= mountPairs[i].mount_flag;
 	}
 
-	if (mount(mpoint, mpoint, NULL, new_flags, 0) < 0)
-		error(EXIT_FAILURE, errno, "mount(remount,ro): %s", mpoint);
+	if (mount(mpoint, mpoint, "none", new_flags, 0) < 0)
+		myerror(EXIT_FAILURE, errno, "mount(remount,ro): %s", mpoint);
 }
 
 void
 do_mount(const char *newroot, struct mntent **mounts)
 {
 	size_t i = 0;
+
+	if (verbose)
+		info("changing mountpoints");
 
 	while (mounts && mounts[i]) {
 		char *mpoint;
@@ -322,53 +324,53 @@ do_mount(const char *newroot, struct mntent **mounts)
 		parse_mountopts(mounts[i]->mnt_opts, &mflags);
 
 		if ((strlen(newroot) + strlen(mounts[i]->mnt_dir)) > MAXPATHLEN)
-			error(EXIT_FAILURE, 0, "mountpoint name too long");
+			myerror(EXIT_FAILURE, 0, "mountpoint name too long");
 
 		xasprintf(&mpoint, "%s%s", newroot, mounts[i]->mnt_dir);
 
 		if (mflags.mkdir && mkdir(mpoint, mflags.mkdir) < 0 && errno != EEXIST)
-			error(EXIT_FAILURE, errno, "mkdir: %s", mpoint);
+			myerror(EXIT_FAILURE, errno, "mkdir: %s", mpoint);
 
 		if (access(mpoint, F_OK) < 0) {
 			if (verbose)
-				dprintf(STDERR_FILENO, "WARNING: mountpoint not found in the isolation: %s\n", mounts[i]->mnt_dir);
+				info("WARNING: mountpoint not found in the isolation: %s", mounts[i]->mnt_dir);
 			goto next;
 		}
 
 		if (!strncasecmp("_bindents", mounts[i]->mnt_type, 9)) {
-			if (verbose)
-				dprintf(STDERR_FILENO, "mount(bind) content into the isolation: %s\n", mpoint);
+			if (verbose > 2)
+				info("mount(bind) content into the isolation: %s", mpoint);
 
 			if (mount("tmpfs", mpoint, "tmpfs", mflags.vfs_opts, mflags.data) < 0)
-				error(EXIT_FAILURE, errno, "mount(_bindents): %s", mpoint);
+				myerror(EXIT_FAILURE, errno, "mount(_bindents): %s", mpoint);
 
 			if (_bindents(mounts[i]->mnt_fsname, mpoint) < 0)
-				error(EXIT_FAILURE, 0, "_bindents: %s", mpoint);
+				myerror(EXIT_FAILURE, 0, "_bindents: %s", mpoint);
 
 			goto next;
 		}
 
 		if (!strncasecmp("_umount", mounts[i]->mnt_type, 7)) {
-			if (verbose)
-				dprintf(STDERR_FILENO, "umount from the isolation: %s\n", mpoint);
+			if (verbose > 2)
+				info("umount from the isolation: %s", mpoint);
 
 			if (umount2(mpoint, MNT_DETACH) < 0)
-				error(EXIT_FAILURE, errno, "umount2: %s", mpoint);
+				myerror(EXIT_FAILURE, errno, "umount2: %s", mpoint);
 
 			goto next;
 		}
 
-		if (verbose) {
+		if (verbose > 2) {
 			if (mflags.vfs_opts & MS_BIND)
-				dprintf(STDERR_FILENO, "mount(bind) into the isolation: %s\n", mpoint);
+				info("mount(bind) into the isolation: %s", mpoint);
 			else if (mflags.vfs_opts & MS_MOVE)
-				dprintf(STDERR_FILENO, "mount(move) into the isolation: %s\n", mpoint);
+				info("mount(move) into the isolation: %s", mpoint);
 			else
-				dprintf(STDERR_FILENO, "mount into the isolation: %s\n", mpoint);
+				info("mount into the isolation: %s", mpoint);
 		}
 
 		if (mount(mounts[i]->mnt_fsname, mpoint, mounts[i]->mnt_type, mflags.vfs_opts, mflags.data) < 0)
-			error(EXIT_FAILURE, errno, "mount: %s", mpoint);
+			myerror(EXIT_FAILURE, errno, "mount: %s", mpoint);
 
 		if (mflags.vfs_opts & MS_RDONLY)
 			remount_ro(mpoint);
