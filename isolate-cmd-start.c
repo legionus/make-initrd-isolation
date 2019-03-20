@@ -159,6 +159,8 @@ container_parent(struct container *data, int child_sock, pid_t temp_pid)
 	if (verbose > 2)
 		info("started");
 
+	cgroup_create(data->cgroups);
+
 	if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0) < 0)
 		myerror(EXIT_FAILURE, errno, "prctl(PR_SET_CHILD_SUBREAPER)");
 
@@ -298,7 +300,6 @@ container_parent(struct container *data, int child_sock, pid_t temp_pid)
 						}
 						break;
 					case CMD_CLIENT_READY:
-						cgroup_create(data->cgroups);
 						cgroup_add(data->cgroups, init_pid);
 
 						if (send_cmd(child_sock, CMD_CLIENT_EXEC, NULL, 0) < 0) {
